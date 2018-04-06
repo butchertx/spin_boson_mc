@@ -1,0 +1,35 @@
+#Lattice Params
+2	#dimension
+ferro	#latticetype
+16 1024	#lengths
+1024 1.0	#spacings
+
+#Model Params
+hard	#cutoff
+0.0 1.0	#couplings
+1024	#beta
+0.0	#h
+
+#Algorithm Params
+mixed 	#algorithm
+1245689 	#randomseed
+
+#Simultation Params
+0	    #metropolis steps per measure
+0     	#onesite steps per measure
+1    	#wolff steps per measure
+10   	#measures
+0       #throwaway measures
+0      #ptemp steps per measure
+
+#Spin-Boson Params
+1.0	#g
+1.0	#alpha
+1.0	#delta
+1.0	#v
+1.0   #omega_c
+
+#MPI/Parallel tempering params
+alpha      #parameter to vary
+4       #number of params
+0.3 0.3 0.3 0.3  #values

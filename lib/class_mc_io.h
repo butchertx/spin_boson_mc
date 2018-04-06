@@ -10,10 +10,6 @@ extern "C" {
 #include "random.h"
 }
 
-//classical monte carlo params for a number of different models and algorithms
-//Models: n-vector models (ising, heisenberg), spinboson
-//Lattices: chain, square, triangular, kagome
-//Algorithms: wolff, generalizedwolff
 
 const double PI = 3.141592653589793238462643;
 
@@ -22,7 +18,8 @@ struct spin_boson_params {
 };
 
 struct class_mc_params {
-	int dim, rand_seed, eq_time, steps_per_measure, measures_per_dump, max_dumps;
+	int dim, rand_seed, metropolis_steps, onesite_steps, 
+		wolff_steps, kept_measures, throwaway_measures, ptemp_steps;
 	double beta, h, kT;
 	std::vector<int> lengths;
 	std::vector<double> spacings;
@@ -54,10 +51,16 @@ struct class_mc_params {
 		ss << "H: " << h << "\n";
 		ss << "Algorithm: " << alg << "\n";
 		ss << "Random Seed: " << rand_seed << "\n";
-		ss << "Equilibration time: " << eq_time << "\n";
-		ss << "Steps Per Measurement: " << steps_per_measure << "\n";
-		ss << "Measures Per Dump: " << measures_per_dump << "\n";
-		ss << "Max Dumps: " << max_dumps << "\n";
+		ss << "Metropolis Steps: " << metropolis_steps << "\n";
+		ss << "Total: " << metropolis_steps*(kept_measures + throwaway_measures) << "\n";
+		ss << "Onesite Steps: " << onesite_steps << "\n";
+		ss << "Total: " << onesite_steps*(kept_measures + throwaway_measures) << "\n";
+		ss << "Wolff Steps: " << wolff_steps << "\n";
+		ss << "Total: " << wolff_steps*(kept_measures + throwaway_measures) << "\n";
+		ss << "Kept Measures: " << kept_measures << "\n";
+		ss << "Throwaway Measures: " << throwaway_measures << "\n";
+		ss << "Parallel Tempering Steps: " << ptemp_steps << "\n";
+		ss << "Total: " << ptemp_steps*(kept_measures + throwaway_measures) << "\n";
 		ss << "Spin Boson Params:\n";
 		ss << "g: " << sbparams.g << "\n";
 		ss << "A0: " << sbparams.A0 << "\n";
@@ -186,8 +189,6 @@ void write_outputs(int, std::vector<int>, std::vector<double>, std::vector<doubl
 void write_outputs_var(std::ofstream*, class_mc_measurements);
 
 void write_final_outputs(class_mc_measurements results, int bins);
-
-void write_params(class_mc_params params);
 
 void write_state(int, IsingLattice2D&);
 

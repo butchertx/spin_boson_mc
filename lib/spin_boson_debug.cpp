@@ -330,10 +330,8 @@ int main(int argc, char* argv[]){
     sprintf(intfile_name, "dump/interactions%d.csv", id);
     std::ofstream file;
     file.open(intfile_name);
-    std::vector<double> interactions_out = wolff.get_interaction_vector();
-    interactions_out.shrink_to_fit();
     file << lat.get_Lx() << "," << lat.get_Ly() << "\n";
-    file << vec2str(interactions_out) << "\n";
+    file << vec2str(wolff.get_interaction_vector()) << "\n";
     file.close();
 
 //
@@ -342,9 +340,9 @@ int main(int argc, char* argv[]){
     class_mc_measurements results;
     results.names = {"loc", "loc2", "loc4", "xmag", "xmag2", "xmag4", "mag", "mag2", "mag4", "sx", "xkinks", "stagger_mag", "action", "cluster"};
     results.values = {{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}};
-    results.func_names = {"corr", "space_corr", "vort_corr"};
-    results.function_num_measures = {0, 0, 0};
-    results.functions = {{}, {}, {}};
+    results.func_names = {"corr", "vort_corr"};
+    results.function_num_measures = {0, 0};
+    results.functions = {{}, {}};
     double loc, xmag, mag, ptemp_moves = 0, ptemp_total = 0, traversal = 0;
     int num_meas = 0, num_accept = 0, num_step = 0;
 
@@ -380,9 +378,6 @@ int main(int argc, char* argv[]){
         std::vector<double> corr_measure(latref.get_Lx()*latref.get_Ly());
         corr_measure.shrink_to_fit();
 
-        std::vector<double> space_corr_measure(latref.get_Lx());
-        space_corr_measure.shrink_to_fit();
-
         thrust::host_vector<double> vort_state(latref.get_Lx()*latref.get_Ly());
         vort_state.shrink_to_fit();
         thrust::host_vector<double> vort_corr(latref.get_Lx()*latref.get_Ly());
@@ -394,8 +389,6 @@ int main(int argc, char* argv[]){
         
         double fast_action = 0, metropolis_action = 0;
         bool ptemp_switch = false;
-        int ptemp_max_iters = 1;//params.alg.compare("onesite") == 0 ? p : p;
-        if(params.max_dumps == 1){ptemp_max_iters = 0;}
 
         //
         //  Initialize CUFFT workspace
@@ -464,263 +457,55 @@ int main(int argc, char* argv[]){
             fprintf(stderr, "CUFFT Error: Unable to create plan\n");
             return 0;
         }
-        //
-        //  Equilibrate, using parallel tempering
-        //
-        timer.flag_start_time("equilibration");
-        if(id == 0){ std::cout << "Starting Equilibration\n\n";}
+
+        if(id == 0){ std::cout << "Starting Simulation\n\n";}
         lat.get_thrust_vector(thrustlat_ref);
         fast_action = cufft_calc_action_prealloc(thrustlat_ref, thrustint_ref, temp_corr, lat.get_Lx(), lat.get_Ly(), 
 						full_forward_plan, full_backward_plan, cuda_status, full_state_rs, full_state_ft);
-        if(params.alg.compare("metropolis") == 0){
-            metropolis_action = fast_action;
-        }
-        for (int i = 0; i < params.eq_time; ++i){
-            timer.flag_start_time("action/step calculation");
-            if(params.alg.compare("onesite") == 0){
-                if(wolff.step_one_site_prealloc_lowmem(latref, &fast_action, temp_corr,thrustsite_trash_ref,
-                    thrustint_site_trash_ref,site_corr_trash_ref,thrustlat_trash_ref,thrustint_trash_ref,full_corr_trash_ref,
-                    &full_forward_plan, &full_backward_plan, &onesite_forward_plan, &onesite_backward_plan,
-                    cuda_status, full_state_rs, full_state_ft, onesite_state_rs, onesite_state_ft)){
-                    ++num_accept;
-                }
-                ++num_step;
-            }
-            else if (params.alg.compare("metropolis") == 0){
-                for (int j = 0; j < params.eq_time/params.max_dumps; ++j){
-                    if(wolff.metropolis_step(latref, &metropolis_action)){
-                        ++num_accept;
-                    }
-                    ++num_step;
-                }
-                lat.get_thrust_vector(thrustlat_ref);
-                fast_action = cufft_calc_action_prealloc(thrustlat_ref, thrustint_ref, temp_corr, lat.get_Lx(), lat.get_Ly(), 
-						full_forward_plan, full_backward_plan, cuda_status, full_state_rs, full_state_ft);
-            }
-            else if(params.alg.compare("mixed") == 0){
-               if(wolff.step_one_site_prealloc_lowmem(latref, &fast_action, temp_corr, thrustsite_trash_ref,
-                    thrustint_site_trash_ref,site_corr_trash_ref,thrustlat_trash_ref,thrustint_trash_ref,full_corr_trash_ref,
-                    &full_forward_plan, &full_backward_plan, &onesite_forward_plan, &onesite_backward_plan,
-                    cuda_status, full_state_rs, full_state_ft, onesite_state_rs, onesite_state_ft)){
-                    ++num_accept;
-               }
-               ++num_step;
-               wolff.step(latref);
-               ++num_accept;
-               ++num_step;
-            }
-            else{
-                wolff.step(latref);
-                ++num_accept;
-                ++num_step;
-                lat.get_thrust_vector(thrustlat_ref);
-                fast_action = cufft_calc_action_prealloc(thrustlat_ref, thrustint_ref, temp_corr, lat.get_Lx(), lat.get_Ly(), 
-						full_forward_plan, full_backward_plan, cuda_status, full_state_rs, full_state_ft);
-            }
-            timer.flag_end_time("action/step calculation");
-        }
-        timer.flag_end_time("equilibration");
-        if(id == 0){ std::cout << "Finished Equilibration\n\n";}
-        for(int d = 0; d < device_count; ++d){
-            if(id == d * proc_per_device){
-                outstring << "Memory usage for device " << d << ":\n";
-                std::cout << outstring.str();
-                outstring.str("");
-                show_memory();
-            }
-        }
+        metropolis_action = fast_action;
+
+        //  
+        //  Run Measurements
+        //  At each measurement iteration, run the steps, take or throw away the measurement, then do parallel tempering
         //
-        //  Run the measurement portion of the simulation
-        //  Use each "dump" as the parallel tempering step
-        //
-        for (int dump = 0; dump < params.max_dumps; ++dump){
-            for (int measure = 0; measure < params.measures_per_dump; ++measure){
-                timer.flag_start_time("action/step calculation");
-                    if(params.alg.compare("onesite") == 0){
-                        for (int n = 0; n < params.steps_per_measure; ++n){
-                            if(wolff.step_one_site_prealloc_lowmem(latref, &fast_action, temp_corr, thrustsite_trash_ref,
-                                thrustint_site_trash_ref,site_corr_trash_ref,thrustlat_trash_ref,thrustint_trash_ref,full_corr_trash_ref,
-                                &full_forward_plan, &full_backward_plan, &onesite_forward_plan, &onesite_backward_plan,
-                                cuda_status, full_state_rs, full_state_ft, onesite_state_rs, onesite_state_ft)){
-                                    ++num_accept;
-                                    traversal += min(wolff.get_cluster_size()/params.lengths[0]/params.lengths[1], 1 - wolff.get_cluster_size()/params.lengths[0]/params.lengths[1]);
-                            }
-                            ++num_step;
-                        }
-                    }
-                    else if (params.alg.compare("metropolis") == 0){
-                        for (int j = 0; j < params.steps_per_measure; ++j){
-                            if(wolff.metropolis_step(latref, &metropolis_action)){
-                                ++num_accept;
-                                traversal += 1.0/params.lengths[0]/params.lengths[1];
-                            }
-                            ++num_step;
-                        }
-                    }
-                    else if(params.alg.compare("mixed") == 0){
-                        //perform steps_per_measure onesite steps and then a wolff step
-                        for (int n = 0; n < params.steps_per_measure; ++n){
-                            if(wolff.step_one_site_prealloc_lowmem(latref, &fast_action, temp_corr, thrustsite_trash_ref,
-                                thrustint_site_trash_ref,site_corr_trash_ref,thrustlat_trash_ref,thrustint_trash_ref,full_corr_trash_ref,
-                                &full_forward_plan, &full_backward_plan, &onesite_forward_plan, &onesite_backward_plan,
-                                cuda_status, full_state_rs, full_state_ft, onesite_state_rs, onesite_state_ft)){
-                                    ++num_accept;
-                                    traversal += min(wolff.get_cluster_size()/params.lengths[0]/params.lengths[1], 1 - wolff.get_cluster_size()/params.lengths[0]/params.lengths[1]);
-                            }
-                            ++num_step;
-                        }
-                        results.record("cluster", wolff.get_cluster_size());
-
-                        wolff.step(latref);
-                        ++num_accept;
-                        ++num_step;
-                        traversal += min(wolff.get_cluster_size()/params.lengths[0]/params.lengths[1], 1 - wolff.get_cluster_size()/params.lengths[0]/params.lengths[1]);
-                    }
-                    else{
-                        for (int n = 0; n < params.steps_per_measure; ++n){
-                            wolff.step(latref);
-                            ++num_accept;
-                            ++num_step;
-                            traversal += min(wolff.get_cluster_size()/params.lengths[0]/params.lengths[1], 1 - wolff.get_cluster_size()/params.lengths[0]/params.lengths[1]);
-                        }
-                    }
-                    lat.get_thrust_vector(thrustlat_ref);
-                    fast_action = cufft_calc_action_prealloc(thrustlat_ref, thrustint_ref, temp_corr, lat.get_Lx(), lat.get_Ly(), 
-						full_forward_plan, full_backward_plan, cuda_status, full_state_rs, full_state_ft);
-                    wolff.set_mag(latref);
-                    timer.flag_start_time("measurements");
-                    loc = wolff.calc_loc(latref);
-                    xmag = wolff.calc_xmag(latref);
-                    mag = wolff.calc_mag(latref);
-
-                    results.record("loc", loc);
-                    results.record("loc2", loc*loc);
-                    results.record("loc4", loc*loc*loc*loc);
-
-                    results.record("xmag", xmag);
-                    results.record("xmag2", xmag*xmag);
-                    results.record("xmag4", xmag*xmag*xmag*xmag);
-
-                    results.record("mag", mag);
-                    results.record("mag2", mag*mag);
-                    results.record("mag4", mag*mag*mag*mag);
-
-                    results.record("sx", wolff.calc_sx(latref));
-                    results.record("xkinks", wolff.calc_space_kinks(latref));
-                    results.record("stagger_mag", wolff.calc_sz_stagger(latref));
-                    results.record("action", fast_action);
-                    if(params.alg.compare("mixed") != 0){
-                        results.record("cluster", wolff.get_cluster_size());
-                    }
-                    
-                    lat.get_vort_state(vort_state_ref);
-                    cufft_calc_action_prealloc(vort_state_ref, thrustint_ref, vort_corr_ref, lat.get_Lx(), lat.get_Ly(), 
-						full_forward_plan, full_backward_plan, cuda_status, full_state_rs, full_state_ft); //calculate vortex correlation
-                    for(int i = 0; i < temp_corr.size(); ++i){
-                        corr_measure[i] = temp_corr[i];
-                        vort_corr_measure[i] = vort_corr_ref[i];
-                    }
-                    for(int i = 0; i < lat.get_Lx(); ++i){
-                        space_corr_measure[i] = 0.0;
-                        for(int j = 0; j < lat.get_Ly(); ++j){
-                            space_corr_measure[i] += corr_measure[lat.get_Ly()*i + j];
-                        }
-                    }
-                    
-                    results.record("corr", corr_measure);
-                    results.record("vort_corr", vort_corr_measure);
-                    results.record("space_corr", space_corr_measure);
-
-                    timer.flag_end_time("measurements");
-                    ++num_meas;
-
-                timer.flag_end_time("action/step calculation");
-            }
-
-            //parallel tempering
-            if(mpi_use){
-                for (int ptemp_iters = 0; ptemp_iters < ptemp_max_iters; ++ptemp_iters){
-                    //shuffle the lattices p times
-                    timer.flag_start_time("parallel tempering");
-                    fast_action = ptemp(p, id, fast_action, params.sbparams.A0, params.Js[1], wolff.calc_sx(latref), params.Js[0], wolff.calc_space_kinks(latref), latref, &ptemp_switch);
-                    if (ptemp_switch){
-                        ptemp_moves += 1.0;
-                        traversal += 1.0;
-                    }
-                    wolff.set_mag(latref);
-                    timer.flag_end_time("parallel tempering");
-                    ptemp_total += 1.0;
-                }
-                if(id == 0){
-                    std::cout << "parallel tempering step " << dump << " out of " << params.max_dumps << " completed\n";
-                }
-            }
-        }
-        latref.get_thrust_vector(thrustlat_ref);
-
-/*         if(abs(fast_action - cufft_calc_action(thrustlat_ref, thrustint_ref, temp_corr, latref.get_Lx(), latref.get_Ly())) >= 0.01){
-            std::stringstream message;
-            message << "Warning: fast action and cufft calculation do not match!  fast_action: " 
-                    << fast_action << "; current cufft action: " << cufft_calc_action(thrustlat_ref, thrustint_ref, temp_corr, latref.get_Lx(), latref.get_Ly()) << "\n";
-            std::cout << message.str();
-        } */
-
-        //test to see if gpu memory availability has been depleted
-        for(int d = 0; d < device_count; ++d){
-            if(id == d * proc_per_device){
-                outstring << "Memory usage for device " << d << ":\n";
-                std::cout << outstring.str();
-                outstring.str("");
-                show_memory();
-            }
-        }
-    }
-    else{
-
-        //
-        //  Equilibrate
-        //
-        timer.flag_start_time("equilibration");
-        double metropolis_action = 0;
-        if(params.alg.compare("metropolis") == 0){
-            for (int j = 0; j < params.eq_time; ++j){
+        for(int measure = 1; measure <= (params.kept_measures + params.throwaway_measures); ++measure){
+            
+            timer.flag_start_time("step calculation");
+            //Metropolis
+            for (int n = 0; n < params.metropolis_steps; ++n){
                 if(wolff.metropolis_step(latref, &metropolis_action)){
                     ++num_accept;
+                    traversal += 1.0/params.lengths[0]/params.lengths[1];
                 }
                 ++num_step;
             }
-        }
-        else{
-            for (int i = 0; i < params.eq_time; ++i){
-                wolff.step(latref);
-                ++num_step;
-                ++num_accept;
-            }
-        }
-        timer.flag_end_time("equilibration");
 
-        for (int dump = 0; dump < params.max_dumps; ++dump){
-            for (int measure = 0; measure < params.measures_per_dump; ++measure){
-                timer.flag_start_time("steps");
-                if (params.alg.compare("metropolis") == 0){
-                    for (int j = 0; j < params.steps_per_measure; ++j){
-                        if(wolff.metropolis_step(latref, &metropolis_action)){
-                            ++num_accept;
-                            traversal += 1.0/params.lengths[0]/params.lengths[1];
-                        }
-                        ++num_step;
-                    }
-                }
-                else{
-                    for (int n = 0; n < params.steps_per_measure; ++n){
-                        wolff.step(latref);
+            //Onesite
+            for (int n = 0; n < params.onesite_steps; ++n){
+                if(wolff.step_one_site_prealloc_lowmem(latref, &fast_action, temp_corr, thrustsite_trash_ref,
+                    thrustint_site_trash_ref,site_corr_trash_ref,thrustlat_trash_ref,thrustint_trash_ref,full_corr_trash_ref,
+                    &full_forward_plan, &full_backward_plan, &onesite_forward_plan, &onesite_backward_plan,
+                    cuda_status, full_state_rs, full_state_ft, onesite_state_rs, onesite_state_ft)){
                         ++num_accept;
-                        ++num_step;
                         traversal += min(wolff.get_cluster_size()/params.lengths[0]/params.lengths[1], 1 - wolff.get_cluster_size()/params.lengths[0]/params.lengths[1]);
-
-                    }
                 }
-                timer.flag_start_time("measurements");
+                ++num_step;
+            }
+
+            //Wolff
+            for (int n = 0; n < params.wolff_steps; ++n){
+                wolff.step(latref);
+                traversal += min(wolff.get_cluster_size()/params.lengths[0]/params.lengths[1], 1 - wolff.get_cluster_size()/params.lengths[0]/params.lengths[1]);
+            }
+            timer.flag_end_time("step calculation");
+
+            //Measure
+            timer.flag_start_time("measurements");
+            lat.get_thrust_vector(thrustlat_ref);
+            fast_action = cufft_calc_action_prealloc(thrustlat_ref, thrustint_ref, temp_corr, lat.get_Lx(), lat.get_Ly(), 
+                full_forward_plan, full_backward_plan, cuda_status, full_state_rs, full_state_ft);
+            wolff.set_mag(latref);
+            if(measure > params.throwaway_measures){
                 loc = wolff.calc_loc(latref);
                 xmag = wolff.calc_xmag(latref);
                 mag = wolff.calc_mag(latref);
@@ -740,24 +525,122 @@ int main(int argc, char* argv[]){
                 results.record("sx", wolff.calc_sx(latref));
                 results.record("xkinks", wolff.calc_space_kinks(latref));
                 results.record("stagger_mag", wolff.calc_sz_stagger(latref));
-                results.record("action", params.sbparams.A0 == 0 ? 
-                                -params.Js[1] * params.lengths[0] * params.lengths[1] * (1 - 2*wolff.calc_sx(latref)) 
-                                - params.Js[0] * params.lengths[0] * params.lengths[1] * (1 - 2*wolff.calc_space_kinks(latref))
-                                : metropolis_action);
+                results.record("action", fast_action);
                 results.record("cluster", wolff.get_cluster_size());
-
-                timer.flag_end_time("measurements");
-                timer.flag_end_time("steps");
+                
+                lat.get_vort_state(vort_state_ref);
+                cufft_calc_action_prealloc(vort_state_ref, thrustint_ref, vort_corr_ref, lat.get_Lx(), lat.get_Ly(), 
+                    full_forward_plan, full_backward_plan, cuda_status, full_state_rs, full_state_ft); //calculate vortex correlation
+                for(int i = 0; i < temp_corr.size(); ++i){
+                    corr_measure[i] = temp_corr[i];
+                    vort_corr_measure[i] = vort_corr_ref[i];
+                }
+                
+                results.record("corr", corr_measure);
+                results.record("vort_corr", vort_corr_measure);
                 ++num_meas;
             }
-            if(id==0){
-                cout << "dump " << dump << " out of " << params.max_dumps << " completed\n";
+            timer.flag_end_time("measurements");
+
+            //parallel tempering
+            if(mpi_use){
+                for (int ptemp_iters = 0; ptemp_iters < params.ptemp_steps; ++ptemp_iters){
+                    //shuffle the lattices
+                    timer.flag_start_time("parallel tempering");
+                    fast_action = ptemp(p, id, fast_action, params.sbparams.A0, params.Js[1], wolff.calc_sx(latref), 
+                                        params.Js[0], wolff.calc_space_kinks(latref), latref, &ptemp_switch);
+                    if (ptemp_switch){
+                        ptemp_moves += 1.0;
+                        traversal += 1.0;
+                    }
+                    wolff.set_mag(latref);
+                    timer.flag_end_time("parallel tempering");
+                    ptemp_total += 1.0;
+                }
+            }
+
+            
+            if(id == 0){
+                std::cout << "measurement step " << measure << " out of " 
+                    << (params.kept_measures + params.throwaway_measures) << " completed\n";
             }
         }
-        ptemp_moves = 1;
-        ptemp_total = 1;
-        std::vector<double> temp_corr(params.lengths[1], 0);
-        results.record("corr", temp_corr);
+
+        lat.get_thrust_vector(thrustlat_ref);
+        if(abs(fast_action - cufft_calc_action(thrustlat_ref, thrustint_ref, temp_corr, latref.get_Lx(), latref.get_Ly())) >= 0.01){
+            std::stringstream message;
+            message << "Warning: fast action and cufft calculation do not match!  fast_action: " 
+                    << fast_action << "; current cufft action: " << cufft_calc_action(thrustlat_ref, thrustint_ref, temp_corr, latref.get_Lx(), latref.get_Ly()) << "\n";
+            std::cout << message.str();
+        }
+
+        //test to see if gpu memory availability has been depleted
+        for(int d = 0; d < device_count; ++d){
+            if(id == d * proc_per_device){
+                outstring << "Memory usage for device " << d << ":\n";
+                std::cout << outstring.str();
+                outstring.str("");
+                show_memory();
+            }
+        }
+    }
+    else{
+
+        if(id == 0){
+            std::cout << "Can only use wolff steps and no parallel tempering\n";
+        }
+        std::vector<double> corr_dummy(1);
+
+        //  
+        //  Run Measurements
+        //  At each measurement iteration, run the steps, take or throw away the measurement, then do parallel tempering
+        //
+        for(int measure = 1; measure <= (params.kept_measures + params.throwaway_measures); ++measure){
+            
+            timer.flag_start_time("step calculation");
+
+            //Wolff
+            for (int n = 0; n < params.wolff_steps; ++n){
+                wolff.step(latref);
+                traversal += min(wolff.get_cluster_size()/params.lengths[0]/params.lengths[1], 1 - wolff.get_cluster_size()/params.lengths[0]/params.lengths[1]);
+            }
+            timer.flag_end_time("step calculation");
+
+            //Measure
+            timer.flag_start_time("measurements");
+            wolff.set_mag(latref);
+            if(measure > params.throwaway_measures){
+                loc = wolff.calc_loc(latref);
+                xmag = wolff.calc_xmag(latref);
+                mag = wolff.calc_mag(latref);
+
+                results.record("loc", loc);
+                results.record("loc2", loc*loc);
+                results.record("loc4", loc*loc*loc*loc);
+
+                results.record("xmag", xmag);
+                results.record("xmag2", xmag*xmag);
+                results.record("xmag4", xmag*xmag*xmag*xmag);
+
+                results.record("mag", mag);
+                results.record("mag2", mag*mag);
+                results.record("mag4", mag*mag*mag*mag);
+
+                results.record("sx", wolff.calc_sx(latref));
+                results.record("xkinks", wolff.calc_space_kinks(latref));
+                results.record("stagger_mag", wolff.calc_sz_stagger(latref));
+                results.record("action", 1.0);
+                results.record("cluster", wolff.get_cluster_size());
+                
+                
+                results.record("corr", corr_dummy);
+                results.record("vort_corr", corr_dummy);
+                ++num_meas;
+            }
+            timer.flag_end_time("measurements");
+            std::cout << "measurement step " << measure << " out of " 
+                << (params.kept_measures + params.throwaway_measures) << " completed\n";
+        }
     }
 
 //
@@ -771,15 +654,10 @@ int main(int argc, char* argv[]){
     corr_avg.shrink_to_fit();
     std::vector<double> vort_corr_avg = results.get_func("vort_corr");
     vort_corr_avg.shrink_to_fit();
-    std::vector<double> space_corr_avg = results.get_func("space_corr");
-    space_corr_avg.shrink_to_fit();
     double N_sites = corr_avg.size();
-    for(int i = 0; i < corr_avg.size(); ++i){
+    for (int i = 0; i < corr_avg.size(); ++i){
         corr_avg[i] /= (N_sites*N_sites);
         vort_corr_avg[i] /= (N_sites*N_sites);
-    }
-    for(int i = 0; i < space_corr_avg.size(); ++i){
-        space_corr_avg[i] /= (N_sites*N_sites);
     }
     loc_avg = mean(results.get_vals("loc"));
     loc2_avg = mean(results.get_vals("loc2"));
@@ -811,7 +689,7 @@ int main(int argc, char* argv[]){
     wolff.print_timers();
     std::cout << "total steps = " << num_step << ", acceptance ratio = " << ((double)num_accept)/((double)num_step)
             << ", number of measurements = " << num_meas
-            << ", parallel tempering steps (or dump steps for no gpu) = " << params.max_dumps
+            << ", parallel tempering steps (or dump steps for no gpu) = " << ptemp_total
             << ", parallel tempering move probability: " << ptemp_moves / ptemp_total 
             << ", cluster size: " << cluster_avg/params.lengths[0]/params.lengths[1] << "\n\n\n";
 
@@ -824,10 +702,9 @@ int main(int argc, char* argv[]){
 //      4. final results table ("results.csv") - this can be done later after results are shared via MPI
 //      5. correlation functions ("correlation#.csv")
 //
-	char dumpfile_name[100], corrfile_name[100], spacecorrfile_name[100], vortcorrfile_name[100], statefile_name[100];
+	char dumpfile_name[100], corrfile_name[100], vortcorrfile_name[100], statefile_name[100];
 	sprintf(dumpfile_name, "dump/dump%d.csv", id);
 	sprintf(corrfile_name, "dump/correlation%d.csv", id);
-    sprintf(spacecorrfile_name, "dump/space_corr%d.csv", id);
     sprintf(vortcorrfile_name, "dump/vort_corr%d.csv", id);
     sprintf(statefile_name, "dump/state%d.pbm", id);
 
@@ -840,11 +717,6 @@ int main(int argc, char* argv[]){
     file.open(corrfile_name);
     file << lat.get_Lx() << "," << lat.get_Ly() << "\n";
     file << vec2str(corr_avg) << "\n";
-    file.close();
-
-    file.open(spacecorrfile_name);
-    file << lat.get_Lx() << "," << lat.get_Ly() << "\n";
-    file << vec2str(space_corr_avg) << "\n";
     file.close();
 
     file.open(vortcorrfile_name);

@@ -177,23 +177,33 @@ void read_input_ising(std::ifstream* file_p, class_mc_params* params) {
 		iss.str("");//#Simulation Parameters
 
 		std::getline(*file_p, line);
-		iss << line;//#eq time
-		iss >> params->eq_time;
+		iss << line;//#Metropolis steps
+		iss >> params->metropolis_steps;
 		iss.str("");
 
 		std::getline(*file_p, line);
-		iss << line;//#steps per measure
-		iss >> params->steps_per_measure;
+		iss << line;//#Onesite Steps
+		iss >> params->onesite_steps;
 		iss.str("");
 
 		std::getline(*file_p, line);
-		iss << line;//#measures per dump
-		iss >> params->measures_per_dump;
+		iss << line;//#Wolff Steps
+		iss >> params->wolff_steps;
 		iss.str("");
 
 		std::getline(*file_p, line);
-		iss << line;//#max dumps
-		iss >> params->max_dumps;
+		iss << line;//#Kept Measures
+		iss >> params->kept_measures;
+		iss.str("");
+
+		std::getline(*file_p, line);
+		iss << line;//#Throwaway Measures
+		iss >> params->throwaway_measures;
+		iss.str("");
+
+		std::getline(*file_p, line);
+		iss << line;//#Parallel Tempering Steps
+		iss >> params->ptemp_steps;
 		iss.str("");
 
 		std::getline(*file_p, line);
@@ -332,20 +342,6 @@ void write_outputs_var(std::ofstream * file_p, class_mc_measurements results) {
 			*file_p << name << "," << vec2str(results.get_vals(name)) << "\n";
 		}
 	}
-}
-
-void write_params(class_mc_params params) {
-	std::ofstream file;
-	file.open("params.csv");
-	file << "#Lattice Parameters\n";
-	file << "lengths," << params.lengths[0] << "," << params.lengths[1] << "\n";
-	file << "spacings," << params.spacings[0] << "," << params.spacings[1] << "\n";
-	file << "Js," << params.Js[0] << "," << params.Js[1] << "\n";
-	file << "beta," << params.beta << "\n";
-	file << "A0," << params.sbparams.A0 << "\n";
-	file << "Delta," << params.sbparams.delta << "\n";
-	file << "v," << params.sbparams.v << "\n";
-	file.close();
 }
 
 void write_state(int state_num, IsingLattice2D& lat) {

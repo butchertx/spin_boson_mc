@@ -44,6 +44,9 @@ double cufft_calc_action_timer_prealloc(thrust::host_vector<double>& state, thru
 	thrust::host_vector<double>& corr, int Lx, int Ly, MemTimeTester * timer,
 	cufftHandle forward_plan, cufftHandle backward_plan, cudaError cuda_status, cufftDoubleReal *state_rs, cufftDoubleComplex *state_ft);
 
+double cufft_calc_action_prealloc(thrust::host_vector<double>& state, thrust::host_vector<double>& interactions,
+	thrust::host_vector<double>& corr, int Lx, int Ly,	cufftHandle forward_plan, cufftHandle backward_plan, cudaError cuda_status, cufftDoubleReal *state_rs, cufftDoubleComplex *state_ft);
+
 __global__ void point_action_shift(double *state, double *shift_state, int x, int y, int Lx, int Ly);
 
 double calc_point_action(thrust::host_vector<double>& state, thrust::host_vector<double>& interactions, int x, int y, int Lx, int Ly);
