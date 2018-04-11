@@ -1,0 +1,6 @@
+*.o
+*.exe
+*.x
+build/compile_mpi.sh
+build/compile_test.sh
+*.slurm

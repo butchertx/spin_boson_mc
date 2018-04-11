@@ -340,6 +340,8 @@ int main(int argc, char* argv[]){
     class_mc_measurements results;
     results.names = {"loc", "loc2", "loc4", "xmag", "xmag2", "xmag4", "mag", "mag2", "mag4", "sx", "xkinks", "stagger_mag", "action", "cluster"};
     results.values = {{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}};
+    results.keep_function_names = {"space_corr"};
+    results.keep_function_vals = {{{}}};
     results.func_names = {"corr", "vort_corr"};
     results.function_num_measures = {0, 0};
     results.functions = {{}, {}};
@@ -386,6 +388,9 @@ int main(int argc, char* argv[]){
         thrust::host_vector<double>& vort_corr_ref = vort_corr;
         std::vector<double> vort_corr_measure(latref.get_Lx()*latref.get_Ly());
         vort_corr_measure.shrink_to_fit();
+
+        std::vector<double> space_corr_measure(latref.get_Lx());
+        space_corr_measure.shrink_to_fit();
         
         double fast_action = 0, metropolis_action = 0;
         bool ptemp_switch = false;
@@ -535,7 +540,14 @@ int main(int argc, char* argv[]){
                     corr_measure[i] = temp_corr[i];
                     vort_corr_measure[i] = vort_corr_ref[i];
                 }
+                for(int x = 0; x < lat.get_Lx(); ++x){
+                    space_corr_measure[x] = 0.0;
+                    for(int y = 0; y < lat.get_Ly(); ++y){
+                        space_corr_measure[x] += corr_measure[x*lat.get_Ly() + y];
+                    }
+                }
                 
+                results.record_keep_function("space_corr", space_corr_measure);
                 results.record("corr", corr_measure);
                 results.record("vort_corr", vort_corr_measure);
                 ++num_meas;
@@ -543,20 +555,18 @@ int main(int argc, char* argv[]){
             timer.flag_end_time("measurements");
 
             //parallel tempering
-            if(mpi_use){
-                for (int ptemp_iters = 0; ptemp_iters < params.ptemp_steps; ++ptemp_iters){
-                    //shuffle the lattices
-                    timer.flag_start_time("parallel tempering");
-                    fast_action = ptemp(p, id, fast_action, params.sbparams.A0, params.Js[1], wolff.calc_sx(latref), 
-                                        params.Js[0], wolff.calc_space_kinks(latref), latref, &ptemp_switch);
-                    if (ptemp_switch){
-                        ptemp_moves += 1.0;
-                        traversal += 1.0;
-                    }
-                    wolff.set_mag(latref);
-                    timer.flag_end_time("parallel tempering");
-                    ptemp_total += 1.0;
+            if(mpi_use && measure%params.ptemp_steps == 0){
+                //shuffle the lattices
+                timer.flag_start_time("parallel tempering");
+                fast_action = ptemp(p, id, fast_action, params.sbparams.A0, params.Js[1], wolff.calc_sx(latref), 
+                                    params.Js[0], wolff.calc_space_kinks(latref), latref, &ptemp_switch);
+                if (ptemp_switch){
+                    ptemp_moves += 1.0;
+                    traversal += 1.0;
                 }
+                wolff.set_mag(latref);
+                timer.flag_end_time("parallel tempering");
+                ptemp_total += 1.0;
             }
 
             
@@ -649,7 +659,7 @@ int main(int argc, char* argv[]){
     double loc_avg, loc2_avg, loc4_avg, loc_bind_avg, loc_bind_err, 
             xmag_avg, xmag2_avg, xmag4_avg, xmag_bind_err, xmag_bind_avg, 
             mag_avg, mag2_avg, mag4_avg, mag_bind_err, mag_bind_avg, 
-            action_avg, sx_avg, xkinks_avg, stagger_mag_avg, cluster_avg;
+            action_avg, sx_avg, xkinks_avg, stagger_mag_avg, cluster_avg, ptemp_acc;
     std::vector<double> corr_avg = results.get_func("corr");
     corr_avg.shrink_to_fit();
     std::vector<double> vort_corr_avg = results.get_func("vort_corr");
@@ -682,6 +692,7 @@ int main(int argc, char* argv[]){
     xkinks_avg = mean(results.get_vals("xkinks"));
     stagger_mag_avg = mean(results.get_vals("stagger_mag"));
     cluster_avg = mean(results.get_vals("cluster"));
+    ptemp_acc = ptemp_moves/ptemp_total;
 
     std::cout << "Results for process #" << id << ":\n";
     timer.flag_end_time("full simulation");
@@ -690,7 +701,7 @@ int main(int argc, char* argv[]){
     std::cout << "total steps = " << num_step << ", acceptance ratio = " << ((double)num_accept)/((double)num_step)
             << ", number of measurements = " << num_meas
             << ", parallel tempering steps (or dump steps for no gpu) = " << ptemp_total
-            << ", parallel tempering move probability: " << ptemp_moves / ptemp_total 
+            << ", parallel tempering move probability: " << ptemp_acc
             << ", cluster size: " << cluster_avg/params.lengths[0]/params.lengths[1] << "\n\n\n";
 
 
@@ -702,11 +713,12 @@ int main(int argc, char* argv[]){
 //      4. final results table ("results.csv") - this can be done later after results are shared via MPI
 //      5. correlation functions ("correlation#.csv")
 //
-	char dumpfile_name[100], corrfile_name[100], vortcorrfile_name[100], statefile_name[100];
+	char dumpfile_name[100], corrfile_name[100], vortcorrfile_name[100], spacecorrfile_name[100], statefile_name[100];
 	sprintf(dumpfile_name, "dump/dump%d.csv", id);
 	sprintf(corrfile_name, "dump/correlation%d.csv", id);
     sprintf(vortcorrfile_name, "dump/vort_corr%d.csv", id);
     sprintf(statefile_name, "dump/state%d.pbm", id);
+    sprintf(spacecorrfile_name, "dump/space_corr%d.csv", id);
 
 	file.open(dumpfile_name);
     for (std::string name : results.names) {
@@ -729,6 +741,10 @@ int main(int argc, char* argv[]){
     file << lat.to_bitmap();
     file.close();
 
+    file.open(spacecorrfile_name);
+    results.write_results(&file, "space_corr");
+    file.close();
+
 //
 //  Send results to master process for easy writing to a file
 //
@@ -737,7 +753,7 @@ int main(int argc, char* argv[]){
         std::vector<double> locs(p), loc2s(p), loc4s(p), loc_binds(p), loc_bind_errs(p), 
                             mags(p), mag2s(p), mag4s(p), mag_binds(p), mag_bind_errs(p),
                             xmags(p), xmag2s(p), xmag4s(p), xmag_binds(p), xmag_bind_errs(p),
-                            actions(p), sxs(p), xkinkss(p), stagger_mags(p), clusters(p), traversals(p);
+                            actions(p), sxs(p), xkinkss(p), stagger_mags(p), clusters(p), ptemp_ratios(p), traversals(p);
         ind_vars[0] = ind_var;
 
         locs[0] = loc_avg;
@@ -763,6 +779,7 @@ int main(int argc, char* argv[]){
         xkinkss[0] = xkinks_avg;
         stagger_mags[0] = stagger_mag_avg;
         clusters[0] = cluster_avg;
+	ptemp_ratios[0] = ptemp_acc;
         traversals[0] = traversal;
 
         MPI_Status Stat;
@@ -792,6 +809,7 @@ int main(int argc, char* argv[]){
             MPI_Recv(&(xkinkss[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
             MPI_Recv(&(stagger_mags[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
             MPI_Recv(&(clusters[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+            MPI_Recv(&(ptemp_ratios[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
             MPI_Recv(&(traversals[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
 
         }
@@ -799,12 +817,12 @@ int main(int argc, char* argv[]){
         //write results
         FILE * file;
         file = fopen("results.dat", "w");
-	    fprintf(file, "%-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s\n", 
-                vary_param, "loc2", "xmag2", "mag2", "loc_bind", "xmag_bind", "mag_bind", "sx", "xkinks", "xstagger", "action", "cluster", "traversal");
+	    fprintf(file, "%-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s\n", 
+                "alpha", "loc2", "xmag2", "mag2", "loc_bind", "xmag_bind", "mag_bind", "sx", "xkinks", "xstagger", "action", "cluster", "ptemp_acc", "traversal");
         for (int i = 0; i < p; ++i){
-            fprintf(file, "%-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f\n", 
+            fprintf(file, "%-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f\n", 
                     ind_vars[i], loc2s[i], xmag2s[i], mag2s[i], loc_binds[i], xmag_binds[i], mag_binds[i], sxs[i], xkinkss[i], stagger_mags[i], 
-                    actions[i]/params.lengths[0]/params.lengths[1], clusters[i]/params.lengths[0]/params.lengths[1], traversals[i]);
+                    actions[i]/params.lengths[0]/params.lengths[1], clusters[i]/params.lengths[0]/params.lengths[1], ptemp_ratios[i], traversals[i]);
         }
         fclose(file);
 
@@ -833,6 +851,7 @@ int main(int argc, char* argv[]){
         file2 << "stagger_mag," << vec2str(stagger_mags) << "\n";
         file2 << "action," << vec2str(actions) << "\n";
         file2 << "cluster," << vec2str(clusters) << "\n";
+	file2 << "ptemp_acceptance," << vec2str(ptemp_ratios) << "\n";
         file2 << "traversal," << vec2str(traversals) << "\n";
         file2.close();
     }
@@ -862,6 +881,7 @@ int main(int argc, char* argv[]){
         MPI_Send(&xkinks_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
         MPI_Send(&stagger_mag_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
         MPI_Send(&cluster_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
+        MPI_Send(&ptemp_acc, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
         MPI_Send(&traversal, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
         
     }

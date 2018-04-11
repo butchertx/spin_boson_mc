@@ -80,9 +80,62 @@ struct class_mc_measurements {
 	std::vector<std::string> names;
 	std::vector<std::vector<double>> values;
 
+	std::vector<std::string> keep_function_names;
+	std::vector<std::vector<std::vector<double>>> keep_function_vals;
+
 	std::vector<std::string> func_names;
 	std::vector<std::vector<double>> functions;
 	std::vector<int> function_num_measures;
+
+	std::vector<std::vector<int>> states;
+
+	void write_results(std::ofstream * f, std::string type){
+		//f must be open. type says "vals", "keep_function_names[i]", or "states"
+		if(f->is_open()){
+			if(type.compare("vals")==0){
+				for (int i = 0; i < names.size(); ++i) {
+        			*f << names[i] ;
+					for(int j = 0; j < values[i].size(); ++j){
+						*f << "," << values[i][j];
+					}
+					*f << "\n";
+    			}
+			}
+			else if(type.compare("states")==0){
+				for(int i = 0; i < states.size(); ++i){
+					*f << states[i][0];
+					for(int j = 1; j < states[i].size(); ++j){
+						*f << "," << states[i][j] ;
+					}
+					*f << "\n";
+				}
+			}
+			else{
+				bool found = false;
+				for (int i = 0; i < keep_function_names.size(); ++i) {
+					if (type.compare(keep_function_names[i]) == 0) {
+						found = true;
+						//functions[i] is a std::vector<std::vector<double>>
+						//functions[i][j] is a std::vector<double> (jth measurement of function i)
+						//functions[i][j][k] is a double
+						for(int j = 0; j < keep_function_vals[i].size(); ++j){
+							*f << keep_function_vals[i][j][0];
+							for(int k = 1; k < keep_function_vals[i][j].size(); ++k){
+								*f << "," << keep_function_vals[i][j][k];
+							}
+							*f << "\n";
+						}
+					}
+				}
+				if (!found) {
+					std::cout << type << " is not a valid observable to write to file\n";
+				}
+			}
+		}
+		else{
+			std::cout << "Error writing results: file not opened before calling function\n";
+		}
+	}
 
 	std::vector<double> get_vals(std::string identifier) {
 		int name_ind = -1;
@@ -131,6 +184,34 @@ struct class_mc_measurements {
 		if (!found) {
 			std::cout << name << " is not a valid observable\n";
 		}
+	}
+
+	void record_keep_function(std::string name, std::vector<double> function){
+		bool found = false;
+		for (int i = 0; i < keep_function_names.size(); ++i) {
+			if (name.compare(keep_function_names[i]) == 0) {
+				found = true;
+				//functions[i] is a std::vector<std::vector<double>>
+				//functions[i][j] is a std::vector<double> (jth measurement of function i)
+				//functions[i][j][k] is a double
+				if (function.size() == keep_function_vals[i][0].size()) {
+					keep_function_vals[i].push_back(function);
+				}
+                else if (keep_function_vals[i][0].size() == 0){
+                    for(int n = 0; n < function.size(); ++n){
+                        keep_function_vals[i][0].push_back(function[n]);
+                    }
+                }
+				else { found = false; }
+			}
+		}
+		if (!found) {
+			std::cout << name << " is not a valid observable function, or there was a size mismatch between recordings\n";
+		}
+	}
+
+	void record(IsingLattice2D& lat){
+		states.push_back(lat.get_bool_spins());
 	}
 
 	void record(std::string name, std::vector<double> function) {

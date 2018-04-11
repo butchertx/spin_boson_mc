@@ -6,8 +6,10 @@ if [ $numfiles -lt 1 ]
 then
     awk -f $SBUTIL/transpose_file.awk $dumpdir/dump0.csv > $dumpdir/dump0.dat
 else
-    for i in {0..$numfiles}
+    i=0
+    while [ $i -le $numfiles ]
     do
         awk -f $SBUTIL/transpose_file.awk $dumpdir/dump$i.csv > $dumpdir/dump$i.dat
+	i="$(($i+1))"
     done
 fi

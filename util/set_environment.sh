@@ -1,4 +1,4 @@
 #!/bin/bash
 
-export SBUTIL="/home/mwb6/spin_boson_mc/util"
-
+export SBUTIL="$HOME/spin_boson_mc/util"
+export SBLIB="$HOME/spin_boson_mc/lib"
