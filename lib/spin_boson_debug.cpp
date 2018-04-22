@@ -501,6 +501,8 @@ int main(int argc, char* argv[]){
             for (int n = 0; n < params.wolff_steps; ++n){
                 wolff.step(latref);
                 traversal += min(wolff.get_cluster_size()/params.lengths[0]/params.lengths[1], 1 - wolff.get_cluster_size()/params.lengths[0]/params.lengths[1]);
+		++num_accept;
+		++num_step;
             }
             timer.flag_end_time("step calculation");
 
@@ -543,7 +545,7 @@ int main(int argc, char* argv[]){
                 for(int x = 0; x < lat.get_Lx(); ++x){
                     space_corr_measure[x] = 0.0;
                     for(int y = 0; y < lat.get_Ly(); ++y){
-                        space_corr_measure[x] += corr_measure[x*lat.get_Ly() + y];
+                        space_corr_measure[x] += corr_measure[x*lat.get_Ly() + y]/(lat.get_N()*lat.get_N()*lat.get_Ly());
                     }
                 }
                 
