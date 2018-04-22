@@ -473,12 +473,13 @@ int main(int argc, char* argv[]){
         //  Run Measurements
         //  At each measurement iteration, run the steps, take or throw away the measurement, then do parallel tempering
         //
+        bool fast_metropolis = params.alg.compare("fast_metropolis") == 0;
         for(int measure = 1; measure <= (params.kept_measures + params.throwaway_measures); ++measure){
             
             timer.flag_start_time("step calculation");
             //Metropolis
             for (int n = 0; n < params.metropolis_steps; ++n){
-                if(wolff.metropolis_step(latref, &metropolis_action)){
+                if((fast_metropolis ? wolff.fast_metropolis_step(latref, &metropolis_action) : wolff.metropolis_step(latref, &metropolis_action))){
                     ++num_accept;
                     traversal += 1.0/params.lengths[0]/params.lengths[1];
                 }
@@ -501,8 +502,8 @@ int main(int argc, char* argv[]){
             for (int n = 0; n < params.wolff_steps; ++n){
                 wolff.step(latref);
                 traversal += min(wolff.get_cluster_size()/params.lengths[0]/params.lengths[1], 1 - wolff.get_cluster_size()/params.lengths[0]/params.lengths[1]);
-		++num_accept;
-		++num_step;
+		        ++num_accept;
+		        ++num_step;
             }
             timer.flag_end_time("step calculation");
 

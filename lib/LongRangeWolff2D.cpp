@@ -378,6 +378,19 @@ double GeneralLRW::calc_point_action_slow(IsingLattice2D& lat, int x, int y){
 	return S;
 }
 
+double GeneralLRW::calc_point_action_fast(IsingLattice2D& lat, int x, int y){
+	double S = 0;
+	int Lx = lat.get_Lx();
+	int Ly = lat.get_Ly();
+	int s1 = lat.get_spin(x,y);
+	for (int i = -Lx/5; i <= Lx/5; ++i){
+		for (int j = -Ly/100; j <= Ly/100; ++j){
+			S += s1 * lat.get_spin(i,j) * interactions[(i + Lx)%Lx][(j + Ly)%Ly];
+		}
+	}
+	return S;
+}
+
 void GeneralLRW::step(IsingLattice2D& lat) {
 	//1. determine a "seed" spin
 	//2. go to all interacting spins and test to add to buffer and cluster
@@ -734,6 +747,18 @@ bool GeneralLRW::metropolis_step(IsingLattice2D& lat, double *action){
 	int x = (int) (lat.get_Lx() * drand1_());
     int y = (int) (lat.get_Ly() * drand1_());
 	double point_action = calc_point_action_slow(lat,x, y);
+	if(drand1_() < exp(2.0*(point_action))){
+		lat.flip_spin(x, y);
+		*action -= 2*point_action;
+		return true;
+	}
+	else{return false;}
+}
+
+bool GeneralLRW::fast_metropolis_step(IsingLattice2D& lat, double *action){
+	int x = (int) (lat.get_Lx() * drand1_());
+    int y = (int) (lat.get_Ly() * drand1_());
+	double point_action = calc_point_action_fast(lat,x, y);
 	if(drand1_() < exp(2.0*(point_action))){
 		lat.flip_spin(x, y);
 		*action -= 2*point_action;

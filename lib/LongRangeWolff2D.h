@@ -78,6 +78,8 @@ public:
 
 	bool metropolis_step(IsingLattice2D& lat, double *action);
 
+	bool fast_metropolis_step(IsingLattice2D& lat, double *action);
+
 	void test_spins(spin, IsingLattice2D& lat);
 
     void test_spins_one_site(spin, IsingLattice2D& lat);
@@ -145,6 +147,8 @@ public:
 	double calc_action_slow(IsingLattice2D&);
 
 	double calc_point_action_slow(IsingLattice2D&,int, int);
+
+	double calc_point_action_fast(IsingLattice2D&, int, int);
 
 	void print_site_sums(){
 		std::cout << "Site sums:\n" << vec2str(site_sums) << "\n";
