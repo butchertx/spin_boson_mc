@@ -261,7 +261,8 @@ void read_input_ising(std::ifstream*, class_mc_params*);
 
 void read_input_spin_boson(std::ifstream*, spin_boson_params*);
 
-void read_input_mpi(std::ifstream*, std::string*, std::vector<double>&);
+void read_input_parallel(std::ifstream*, std::vector<double>&, std::vector<double>&, 
+	std::vector<int>&, std::vector<int>&, std::vector<int>&);
 
 void apply_spin_boson_params(class_mc_params*);
 

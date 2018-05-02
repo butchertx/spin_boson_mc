@@ -175,25 +175,50 @@ int main(int argc, char* argv[]){
     int device_count = 0;//number of GPUs
     int proc_per_device;//number of threads per GPU
     double random_value;//test random value
-	bool gpu;//gpu, yay or nay, determined by command line argument
-    bool mpi_use;//mpi, yay or nay, determined by command line argument
+	bool gpu = false;//gpu, yay or nay, determined by command line argument
+    bool mpi_use = true;//mpi, yay or nay, determined by command line argument
     cudaDeviceProp gpu_stats;
     std::stringstream outstring;
 
-    mpi_use = (argc <= 3);
+    // if(argc >= 4){
+    //     std::string arg1(argv[3]);
+    //     if(arg1.compare("nompi") == 0){
+    //         mpi_use = false;
+    //     }
+    //     else if(arg1.compare("nogpu") == 0){
+    //         gpu = false;
+    //     }
+    //     if(argc >= 5){
+    //         std::string arg2(argv[4]);
+    //         if(arg2.compare("nompi") == 0){
+    //             mpi_use = false;
+    //         }
+    //         else if(arg2.compare("nogpu") == 0){
+    //             gpu = false;
+    //         }
+    //     }
+    // }
+
     if(mpi_use){
-//
-//  Initialize MPI.
-//
-    MPI_Init ( &argc, &argv );
-//
-//  Get the number of processes.
-//
-    MPI_Comm_size ( MPI_COMM_WORLD, &p );
-//
-//  Get the ID of this process.
-//
-    MPI_Comm_rank ( MPI_COMM_WORLD, &id );
+        //
+        //  Initialize MPI.
+        //
+            MPI_Init ( &argc, &argv );
+        //
+        //  Get the number of processes.
+        //
+            MPI_Comm_size ( MPI_COMM_WORLD, &p );
+        //
+        //  Get the ID of this process.
+        //
+            MPI_Comm_rank ( MPI_COMM_WORLD, &id );
+
+        if(id == 0){
+            std::cout << "Using MPI with " << p << " processes\n";
+        }
+        else{
+            std::cout << "intialized mpi process\n";
+        }
     }
     else{
         p = 1;
@@ -201,7 +226,6 @@ int main(int argc, char* argv[]){
         std::cout << "Not using MPI\n";
     }
 
-	gpu = (argc <= 4);
 	if(id == 0){
         std::cout << "Using GPU, yes or no: " << (gpu ? "yes" : "no") << "\n";
     }
@@ -244,56 +268,46 @@ int main(int argc, char* argv[]){
 //  Need a base parameter file: just specify the name of an input file with the parameters
 //  Need to know which parameter to vary and how to vary it.  This should be compatible with # of processes
 //
+    std::cout << "Got to param read part\n";
     class_mc_params params;
-    ifstream infile;
-    string vary_param;
+    ifstream infile1, infile2;
     double ind_var;
-    std::vector<double> param_vals;
-    std::vector<double>& param_ref = param_vals;
-    infile.open(argv[1]);
-    read_input_ising(&infile, &params);
-    read_input_spin_boson(&infile, &(params.sbparams));
-    read_input_mpi(&infile, &vary_param, param_ref);
-    if(param_ref.size() != p && id == 0){
+    infile1.open(argv[1]);
+    read_input_ising(&infile1, &params);
+    read_input_spin_boson(&infile1, &(params.sbparams));
+    infile2.open(argv[2]);
+    std::vector<double> beta_parallel, alpha_parallel;
+    std::vector<int> met_steps_parallel, onesite_steps_parallel, wolff_steps_parallel;
+    read_input_parallel(&infile2, beta_parallel, alpha_parallel, met_steps_parallel, 
+            onesite_steps_parallel, wolff_steps_parallel);
+    std::cout << "beta size: " << beta_parallel.size() << "\n";
+    if(beta_parallel.size() * alpha_parallel.size() != p && id == 0){
         std::cout << "Error reading parallel tempering params! Number of param values in input file does not match number of processes\n";
     }
-    //change parameter based on id, delta, and given param name.
-    if (vary_param.compare("alpha") == 0){
-        params.sbparams.A0 = param_ref[id];
-        ind_var = params.sbparams.A0;
-    }
-    else if (vary_param.compare("J") == 0){
-        params.Js[0] = param_ref[id];
-        ind_var = params.Js[0];
-    }
-    else if (vary_param.compare("delta") == 0){
-        params.sbparams.delta = param_ref[id];
-        ind_var = params.sbparams.delta;
-    }
-    else if (vary_param.compare("r") == 0){
-        params.spacings[0] = param_ref[id];
-        ind_var = params.spacings[0];
-    }
-    else if (vary_param.compare("Nx") == 0){
-        params.lengths[0] = param_ref[id];
-        ind_var = params.lengths[0];
-    }
-    else if (vary_param.compare("Nt") == 0){
-        params.lengths[1] = param_ref[id];
-        ind_var = params.lengths[1];
-    }
-    else if (vary_param.compare("beta") == 0){
-        params.beta = param_ref[id];
-        ind_var = params.beta;
-    }
-    params.rand_seed += id*100;
+
+    //change parameter based on id
+    params.sbparams.A0 = id / beta_parallel.size() < alpha_parallel.size() ? 
+                        alpha_parallel[id / beta_parallel.size()] : 
+                        alpha_parallel[alpha_parallel.size() - 1];
+    params.beta = beta_parallel[id % beta_parallel.size()];
+    params.metropolis_steps = id / beta_parallel.size() < met_steps_parallel.size() ? 
+                        met_steps_parallel[id / beta_parallel.size()] : 
+                        met_steps_parallel[met_steps_parallel.size() - 1];
+    params.onesite_steps = id / beta_parallel.size() < onesite_steps_parallel.size() ? 
+                        onesite_steps_parallel[id / beta_parallel.size()] : 
+                        onesite_steps_parallel[onesite_steps_parallel.size() - 1];
+    params.wolff_steps = id / beta_parallel.size() < wolff_steps_parallel.size() ? 
+                        wolff_steps_parallel[id / beta_parallel.size()] : 
+                        wolff_steps_parallel[wolff_steps_parallel.size() - 1];
+                        
+    params.rand_seed += id*513;
     apply_spin_boson_params(&params);
-    if (id == 0){
+//    if (id == 0){
         outstring << "Params for process " << id << ":\n" << params.to_string() << "\n\n\n";
         cout << outstring.str();
         makePath("./dump");
         outstring.str("");
-    }
+//    }
 
 
 //
@@ -651,8 +665,10 @@ int main(int argc, char* argv[]){
                 ++num_meas;
             }
             timer.flag_end_time("measurements");
-            std::cout << "measurement step " << measure << " out of " 
-                << (params.kept_measures + params.throwaway_measures) << " completed\n";
+            if(id == 0){
+                std::cout << "measurement step " << measure << " out of " 
+                    << (params.kept_measures + params.throwaway_measures) << " completed\n";
+            }
         }
     }
 
@@ -757,7 +773,7 @@ int main(int argc, char* argv[]){
                             mags(p), mag2s(p), mag4s(p), mag_binds(p), mag_bind_errs(p),
                             xmags(p), xmag2s(p), xmag4s(p), xmag_binds(p), xmag_bind_errs(p),
                             actions(p), sxs(p), xkinkss(p), stagger_mags(p), clusters(p), ptemp_ratios(p), traversals(p);
-        ind_vars[0] = ind_var;
+        ind_vars[0] = params.sbparams.A0;
 
         locs[0] = loc_avg;
         loc2s[0] = loc2_avg;

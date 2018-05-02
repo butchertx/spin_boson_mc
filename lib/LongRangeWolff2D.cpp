@@ -384,7 +384,7 @@ double GeneralLRW::calc_point_action_fast(IsingLattice2D& lat, int x, int y){
 	int Ly = lat.get_Ly();
 	int s1 = lat.get_spin(x,y);
 	for (int i = -Lx/5; i <= Lx/5; ++i){
-		for (int j = -Ly/100; j <= Ly/100; ++j){
+		for (int j = -Ly/20; j <= Ly/20; ++j){
 			S += s1 * lat.get_spin(i,j) * interactions[(i + Lx)%Lx][(j + Ly)%Ly];
 		}
 	}

@@ -250,47 +250,92 @@ void read_input_spin_boson(std::ifstream* file_p, spin_boson_params* params) {
 		iss << line;//#omega_c
 		iss >> params->omega_c;
 		iss.str("");
-
-		std::getline(*file_p, line);
-		iss << line;//#blank
-		iss.str("");
 	}
 	else {
 		std::cout << "Error: input file not opened\n";
 	}
 }
 
-void read_input_mpi(std::ifstream* file_p, std::string* param_name, std::vector<double>& vals) {
-	std::string line;
-	int dummyi;
+void read_input_parallel(std::ifstream* file_p, std::vector<double>& betas,
+	std::vector<double>& alphas, std::vector<int>& met_steps, 
+	std::vector<int>& onesite_steps, std::vector<int>& wolff_steps){
+	assert(betas.size() == 0);
+	assert(alphas.size() == 0);
+	assert(met_steps.size() == 0);
+	assert(onesite_steps.size() == 0);
+	assert(wolff_steps.size() == 0);
+	std::string line, dummystr;
+	int dummyi, num_betas, num_alphas;
 	double dummyd;
 	std::stringstream iss;
 
 	if (file_p->is_open()) {
 		std::getline(*file_p, line);
-		iss << line;//#MPI params
+		iss << line;//#beta input type
+		iss >> dummystr;
+		std::cout << dummystr << "\n";
+		if(dummystr.compare("vals") == 0){
+			iss.str("");
+			std::getline(*file_p, line);
+			iss << line;
+			iss >> num_betas;//number of betas
+			iss.str("");
+
+			std::getline(*file_p, line);
+			iss << line;
+			for(int i = 0; i < num_betas; ++i){
+				iss >> dummyd;
+				betas.push_back(dummyd);
+			}
+		}
 		iss.str("");
 
 		std::getline(*file_p, line);
-		iss << line;//#param name
-		iss >> *param_name;
+		iss << line;//#alpha input type
+		iss >> dummystr;
+		if(dummystr.compare("vals") == 0){
+			iss.str("");
+			std::getline(*file_p, line);
+			iss << line;
+			iss >> num_alphas;//number of betas
+			iss.str("");
+
+			std::getline(*file_p, line);
+			iss << line;
+			for(int i = 0; i < num_alphas; ++i){
+				iss >> dummyd;
+				alphas.push_back(dummyd);
+			}
+		}
+		iss.str("");
+		
+
+		std::getline(*file_p, line);
+		iss << line;//#metropolis steps
+		for(int i = 0; i < num_alphas; ++i){
+			iss >> dummyi;
+			met_steps.push_back(dummyi);
+		}
 		iss.str("");
 
 		std::getline(*file_p, line);
-		iss << line;//#num_vals
-		iss >> dummyi;
+		iss << line;//#onesite steps
+		for(int i = 0; i < num_alphas; ++i){
+			iss >> dummyi;
+			onesite_steps.push_back(dummyi);
+		}
 		iss.str("");
 
 		std::getline(*file_p, line);
-		iss << line;//#vals
-		for (int i = 0; i < dummyi; ++i){
-            iss >> dummyd;
-			vals.push_back(dummyd);
+		iss << line;//#wolff steps
+		for(int i = 0; i < num_alphas; ++i){
+			iss >> dummyi;
+			wolff_steps.push_back(dummyi);
 		}
 		iss.str("");
 	}
 	else {
-		std::cout << "Error: input file not opened\n";
+		std::cout << "Error: input file 'parallel.txt' not opened\n";
 	}
 }
 
