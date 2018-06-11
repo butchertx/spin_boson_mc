@@ -59,8 +59,7 @@ struct class_mc_params {
 		ss << "Total: " << wolff_steps*(kept_measures + throwaway_measures) << "\n";
 		ss << "Kept Measures: " << kept_measures << "\n";
 		ss << "Throwaway Measures: " << throwaway_measures << "\n";
-		ss << "Parallel Tempering Steps: " << ptemp_steps << "\n";
-		ss << "Total: " << ptemp_steps*(kept_measures + throwaway_measures) << "\n";
+		ss << "Parallel Tempering Steps: " << (kept_measures + throwaway_measures)/ptemp_steps << "\n";
 		ss << "Spin Boson Params:\n";
 		ss << "g: " << sbparams.g << "\n";
 		ss << "A0: " << sbparams.A0 << "\n";
@@ -274,7 +273,7 @@ void write_final_outputs(class_mc_measurements results, int bins);
 
 void write_state(int, IsingLattice2D&);
 
-void write_state_pbm(int, IsingLattice2D&);
+void write_state_pbm(int, int, IsingLattice2D&);
 
 void read_state_pbm(int, IsingLattice2D&);
 

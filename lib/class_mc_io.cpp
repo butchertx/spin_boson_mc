@@ -273,7 +273,6 @@ void read_input_parallel(std::ifstream* file_p, std::vector<double>& betas,
 		std::getline(*file_p, line);
 		iss << line;//#beta input type
 		iss >> dummystr;
-		std::cout << dummystr << "\n";
 		if(dummystr.compare("vals") == 0){
 			iss.str("");
 			std::getline(*file_p, line);
@@ -404,10 +403,10 @@ void write_state(int state_num, IsingLattice2D& lat) {
 
 }
 
-void write_state_pbm(int state_num, IsingLattice2D& lat){
+void write_state_pbm(int id, int state_num, IsingLattice2D& lat){
 	makePath("./dump");
 	char dump_name[100];
-	sprintf(dump_name, "dump/state%04d.pbm", state_num);
+	sprintf(dump_name, "dump/statedump%d/state%04d.pbm", id, state_num);
 	std::ofstream file;
 	file.open(dump_name);
 	file << "P1 " << lat.get_Lx() << " " << lat.get_Ly() << "\n";
@@ -418,7 +417,7 @@ void write_state_pbm(int state_num, IsingLattice2D& lat){
 void read_state_pbm(int state_num, IsingLattice2D& lat){
 	std::ifstream file;
 	char filename[100];
-	int Lx,Ly, dummyi;
+	int Lx,Ly,dummyi;
 	std::stringstream iss;
 	std::string line;
 	sprintf(filename, "dump/state%d.pbm", state_num);
@@ -428,16 +427,16 @@ void read_state_pbm(int state_num, IsingLattice2D& lat){
 	iss << line;//Lx and Ly
 	iss >> Lx;
 	iss >> Ly;
-	iss.str("");
 	if(Lx == lat.get_Lx() && Ly == lat.get_Ly()){
 		for(int y = 0; y < Ly; ++y){
+			iss.str("");
+			iss.clear();
 			std::getline(file, line);
 			iss << line;
 			for(int x = 0; x < Lx; ++x){
 				iss >> dummyi;
 				lat.set_spin(x,y,dummyi);
 			}
-			iss.str("");
 		}
 	}
 	else{

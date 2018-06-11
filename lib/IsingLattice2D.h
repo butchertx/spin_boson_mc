@@ -87,7 +87,9 @@ public:
 	}
 
 	void set_spin(int x, int y, int val){
-		spins[(x + Lx)%Lx][(y + Ly)%Ly] = 2*(val%2) - 1;
+        //Assumes val is 1 or 0 (used for read_state_pbm)
+        assert(val == 1 || val == 0);
+		spins[(x + Lx)%Lx][(y + Ly)%Ly] = 2*val - 1 ;
 	}
 
 	std::vector<int> get_bool_spins(){

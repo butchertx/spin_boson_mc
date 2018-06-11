@@ -11,16 +11,16 @@ hard	#cutoff
 0.0	#h
 
 #Algorithm Params
-fast_metropolis 	#algorithm
+write_states 	#algorithm
 1245689 	#randomseed
 
 #Simultation Params
-3200	    #metropolis steps per measure
+0	    #metropolis steps per measure
 0     	#onesite steps per measure
 0    	#wolff steps per measure
 100   	#measures
 0       #throwaway measures
-1001    #measures per ptemp step
+101    #measures per ptemp step
 
 #Spin-Boson Params
 1.0	#g

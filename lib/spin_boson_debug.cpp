@@ -24,6 +24,8 @@ flexible.
 #include "MemTimeTester.h"
 #include "obs_calc_fast.cuh"
 #include <thrust/inner_product.h>
+#include <thread>
+#include <chrono>
 extern "C" {
 #include "random.h"
 }
@@ -32,7 +34,7 @@ extern "C" {
 
 using namespace std;
 
-double ptemp(int num_procs, int id, double action, double alpha, double gamma, double sx, double J, double sflips, IsingLattice2D& lat, bool *switched){
+double ptemp(int num_procs, int id, double action, double alpha, double gamma, double sx, double J, double sflips, IsingLattice2D& lat, bool *switched, std::vector<double>& send_to_meas){
     //use MPI to perform a parallel tempering step
     //when it comes time to send the lattices, master process will send first
     //and child processes will all receive first.  This might not be the quickest way
@@ -130,6 +132,10 @@ double ptemp(int num_procs, int id, double action, double alpha, double gamma, d
             lat.copy_bool_spins(lat_buffer_in);
             *switched = true; //lattice is moved
         }
+        assert(send_to_meas.size() == send_to.size());
+        for(int i = 0; i < send_to.size(); ++i){
+            send_to_meas[i] = (double)send_to[i];
+        }
 	}
     else{
         //child processes
@@ -175,29 +181,29 @@ int main(int argc, char* argv[]){
     int device_count = 0;//number of GPUs
     int proc_per_device;//number of threads per GPU
     double random_value;//test random value
-	bool gpu = false;//gpu, yay or nay, determined by command line argument
+	bool gpu = true;//gpu, yay or nay, determined by command line argument
     bool mpi_use = true;//mpi, yay or nay, determined by command line argument
     cudaDeviceProp gpu_stats;
     std::stringstream outstring;
 
-    // if(argc >= 4){
-    //     std::string arg1(argv[3]);
-    //     if(arg1.compare("nompi") == 0){
-    //         mpi_use = false;
-    //     }
-    //     else if(arg1.compare("nogpu") == 0){
-    //         gpu = false;
-    //     }
-    //     if(argc >= 5){
-    //         std::string arg2(argv[4]);
-    //         if(arg2.compare("nompi") == 0){
-    //             mpi_use = false;
-    //         }
-    //         else if(arg2.compare("nogpu") == 0){
-    //             gpu = false;
-    //         }
-    //     }
-    // }
+    if(argc >= 4){
+        std::string arg1(argv[3]);
+        if(arg1.compare("nompi") == 0){
+            mpi_use = false;
+        }
+        else if(arg1.compare("nogpu") == 0){
+            gpu = false;
+        }
+        if(argc >= 5){
+            std::string arg2(argv[4]);
+            if(arg2.compare("nompi") == 0){
+                mpi_use = false;
+            }
+            else if(arg2.compare("nogpu") == 0){
+                gpu = false;
+            }
+        }
+    }
 
     if(mpi_use){
         //
@@ -215,9 +221,6 @@ int main(int argc, char* argv[]){
 
         if(id == 0){
             std::cout << "Using MPI with " << p << " processes\n";
-        }
-        else{
-            std::cout << "intialized mpi process\n";
         }
     }
     else{
@@ -268,10 +271,8 @@ int main(int argc, char* argv[]){
 //  Need a base parameter file: just specify the name of an input file with the parameters
 //  Need to know which parameter to vary and how to vary it.  This should be compatible with # of processes
 //
-    std::cout << "Got to param read part\n";
     class_mc_params params;
     ifstream infile1, infile2;
-    double ind_var;
     infile1.open(argv[1]);
     read_input_ising(&infile1, &params);
     read_input_spin_boson(&infile1, &(params.sbparams));
@@ -280,7 +281,6 @@ int main(int argc, char* argv[]){
     std::vector<int> met_steps_parallel, onesite_steps_parallel, wolff_steps_parallel;
     read_input_parallel(&infile2, beta_parallel, alpha_parallel, met_steps_parallel, 
             onesite_steps_parallel, wolff_steps_parallel);
-    std::cout << "beta size: " << beta_parallel.size() << "\n";
     if(beta_parallel.size() * alpha_parallel.size() != p && id == 0){
         std::cout << "Error reading parallel tempering params! Number of param values in input file does not match number of processes\n";
     }
@@ -302,12 +302,27 @@ int main(int argc, char* argv[]){
                         
     params.rand_seed += id*513;
     apply_spin_boson_params(&params);
-//    if (id == 0){
+    if (id == 0){
         outstring << "Params for process " << id << ":\n" << params.to_string() << "\n\n\n";
         cout << outstring.str();
-        makePath("./dump");
         outstring.str("");
-//    }
+    }
+
+    //make path for write states and write process params
+
+    makePath("./dump");
+    if(params.alg.compare("write_states") == 0){
+	    char state_dump[100];
+	    sprintf(state_dump, "dump/statedump%d", id);
+        makePath(state_dump);
+    }
+    char param_file_name[100];
+    ofstream param_file_out;
+    sprintf(param_file_name, "dump/params%d.dat", id);
+    param_file_out.open(param_file_name);
+    param_file_out << params.to_string();
+    param_file_out.close();
+
 
 
 //
@@ -354,8 +369,8 @@ int main(int argc, char* argv[]){
     class_mc_measurements results;
     results.names = {"loc", "loc2", "loc4", "xmag", "xmag2", "xmag4", "mag", "mag2", "mag4", "sx", "xkinks", "stagger_mag", "action", "cluster"};
     results.values = {{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}};
-    results.keep_function_names = {"space_corr"};
-    results.keep_function_vals = {{{}}};
+    results.keep_function_names = {"space_corr", "send_to"};
+    results.keep_function_vals = {{{}}, {{}}};
     results.func_names = {"corr", "vort_corr"};
     results.function_num_measures = {0, 0};
     results.functions = {{}, {}};
@@ -405,6 +420,7 @@ int main(int argc, char* argv[]){
 
         std::vector<double> space_corr_measure(latref.get_Lx());
         space_corr_measure.shrink_to_fit();
+        std::vector<double> send_to_measure(p);
         
         double fast_action = 0, metropolis_action = 0;
         bool ptemp_switch = false;
@@ -527,29 +543,30 @@ int main(int argc, char* argv[]){
             fast_action = cufft_calc_action_prealloc(thrustlat_ref, thrustint_ref, temp_corr, lat.get_Lx(), lat.get_Ly(), 
                 full_forward_plan, full_backward_plan, cuda_status, full_state_rs, full_state_ft);
             wolff.set_mag(latref);
+            loc = wolff.calc_loc(latref);
+            xmag = wolff.calc_xmag(latref);
+            mag = wolff.calc_mag(latref);
+
+            results.record("loc", loc);
+            results.record("loc2", loc*loc);
+            results.record("loc4", loc*loc*loc*loc);
+
+            results.record("xmag", xmag);
+            results.record("xmag2", xmag*xmag);
+            results.record("xmag4", xmag*xmag*xmag*xmag);
+
+            results.record("mag", mag);
+            results.record("mag2", mag*mag);
+            results.record("mag4", mag*mag*mag*mag);
+
+            results.record("sx", wolff.calc_sx(latref));
+            results.record("xkinks", wolff.calc_space_kinks(latref));
+            results.record("stagger_mag", wolff.calc_sz_stagger(latref));
+            results.record("action", fast_action);
+            results.record("cluster", wolff.get_cluster_size());
+
             if(measure > params.throwaway_measures){
-                loc = wolff.calc_loc(latref);
-                xmag = wolff.calc_xmag(latref);
-                mag = wolff.calc_mag(latref);
-
-                results.record("loc", loc);
-                results.record("loc2", loc*loc);
-                results.record("loc4", loc*loc*loc*loc);
-
-                results.record("xmag", xmag);
-                results.record("xmag2", xmag*xmag);
-                results.record("xmag4", xmag*xmag*xmag*xmag);
-
-                results.record("mag", mag);
-                results.record("mag2", mag*mag);
-                results.record("mag4", mag*mag*mag*mag);
-
-                results.record("sx", wolff.calc_sx(latref));
-                results.record("xkinks", wolff.calc_space_kinks(latref));
-                results.record("stagger_mag", wolff.calc_sz_stagger(latref));
-                results.record("action", fast_action);
-                results.record("cluster", wolff.get_cluster_size());
-                
+                //only measure correlation functions after throwaway measures
                 lat.get_vort_state(vort_state_ref);
                 cufft_calc_action_prealloc(vort_state_ref, thrustint_ref, vort_corr_ref, lat.get_Lx(), lat.get_Ly(), 
                     full_forward_plan, full_backward_plan, cuda_status, full_state_rs, full_state_ft); //calculate vortex correlation
@@ -560,7 +577,7 @@ int main(int argc, char* argv[]){
                 for(int x = 0; x < lat.get_Lx(); ++x){
                     space_corr_measure[x] = 0.0;
                     for(int y = 0; y < lat.get_Ly(); ++y){
-                        space_corr_measure[x] += corr_measure[x*lat.get_Ly() + y]/(lat.get_N()*lat.get_N()*lat.get_Ly());
+                        space_corr_measure[x] += corr_measure[x*lat.get_Ly() + y]/(lat.get_Ly());
                     }
                 }
                 
@@ -568,6 +585,10 @@ int main(int argc, char* argv[]){
                 results.record("corr", corr_measure);
                 results.record("vort_corr", vort_corr_measure);
                 ++num_meas;
+
+                if(params.alg.compare("write_states") == 0){
+                    write_state_pbm(id, measure - params.throwaway_measures, latref);
+                }
             }
             timer.flag_end_time("measurements");
 
@@ -576,7 +597,7 @@ int main(int argc, char* argv[]){
                 //shuffle the lattices
                 timer.flag_start_time("parallel tempering");
                 fast_action = ptemp(p, id, fast_action, params.sbparams.A0, params.Js[1], wolff.calc_sx(latref), 
-                                    params.Js[0], wolff.calc_space_kinks(latref), latref, &ptemp_switch);
+                                    params.Js[0], wolff.calc_space_kinks(latref), latref, &ptemp_switch, send_to_measure);
                 if (ptemp_switch){
                     ptemp_moves += 1.0;
                     traversal += 1.0;
@@ -584,6 +605,7 @@ int main(int argc, char* argv[]){
                 wolff.set_mag(latref);
                 timer.flag_end_time("parallel tempering");
                 ptemp_total += 1.0;
+                results.record_keep_function("send_to", send_to_measure);
             }
 
             
@@ -617,6 +639,7 @@ int main(int argc, char* argv[]){
             std::cout << "Can only use wolff steps and no parallel tempering\n";
         }
         std::vector<double> corr_dummy(1);
+	    double metropolis_action = -1.0;
 
         //  
         //  Run Measurements
@@ -625,43 +648,52 @@ int main(int argc, char* argv[]){
         for(int measure = 1; measure <= (params.kept_measures + params.throwaway_measures); ++measure){
             
             timer.flag_start_time("step calculation");
+            //Metropolis
+            for (int n = 0; n < params.metropolis_steps; ++n){
+                if(wolff.metropolis_step(latref, &metropolis_action)){
+                    ++num_accept;
+                    traversal += 1.0/params.lengths[0]/params.lengths[1];
+                }
+                ++num_step;
+            }
 
             //Wolff
             for (int n = 0; n < params.wolff_steps; ++n){
                 wolff.step(latref);
                 traversal += min(wolff.get_cluster_size()/params.lengths[0]/params.lengths[1], 1 - wolff.get_cluster_size()/params.lengths[0]/params.lengths[1]);
+		        ++num_step;
             }
             timer.flag_end_time("step calculation");
 
             //Measure
             timer.flag_start_time("measurements");
             wolff.set_mag(latref);
+            loc = wolff.calc_loc(latref);
+            xmag = wolff.calc_xmag(latref);
+            mag = wolff.calc_mag(latref);
+
+            results.record("loc", loc);
+            results.record("loc2", loc*loc);
+            results.record("loc4", loc*loc*loc*loc);
+
+            results.record("xmag", xmag);
+            results.record("xmag2", xmag*xmag);
+            results.record("xmag4", xmag*xmag*xmag*xmag);
+
+            results.record("mag", mag);
+            results.record("mag2", mag*mag);
+            results.record("mag4", mag*mag*mag*mag);
+
+            results.record("sx", wolff.calc_sx(latref));
+            results.record("xkinks", wolff.calc_space_kinks(latref));
+            results.record("stagger_mag", wolff.calc_sz_stagger(latref));
+            results.record("action", 1.0);
+            results.record("cluster", wolff.get_cluster_size());
             if(measure > params.throwaway_measures){
-                loc = wolff.calc_loc(latref);
-                xmag = wolff.calc_xmag(latref);
-                mag = wolff.calc_mag(latref);
-
-                results.record("loc", loc);
-                results.record("loc2", loc*loc);
-                results.record("loc4", loc*loc*loc*loc);
-
-                results.record("xmag", xmag);
-                results.record("xmag2", xmag*xmag);
-                results.record("xmag4", xmag*xmag*xmag*xmag);
-
-                results.record("mag", mag);
-                results.record("mag2", mag*mag);
-                results.record("mag4", mag*mag*mag*mag);
-
-                results.record("sx", wolff.calc_sx(latref));
-                results.record("xkinks", wolff.calc_space_kinks(latref));
-                results.record("stagger_mag", wolff.calc_sz_stagger(latref));
-                results.record("action", 1.0);
-                results.record("cluster", wolff.get_cluster_size());
-                
-                
                 results.record("corr", corr_dummy);
                 results.record("vort_corr", corr_dummy);
+                results.record_keep_function("space_corr", corr_dummy);
+                results.record_keep_function("send_to", corr_dummy);
                 ++num_meas;
             }
             timer.flag_end_time("measurements");
@@ -713,15 +745,10 @@ int main(int argc, char* argv[]){
     cluster_avg = mean(results.get_vals("cluster"));
     ptemp_acc = ptemp_moves/ptemp_total;
 
-    std::cout << "Results for process #" << id << ":\n";
+    
     timer.flag_end_time("full simulation");
-    timer.print_timers();
-    wolff.print_timers();
-    std::cout << "total steps = " << num_step << ", acceptance ratio = " << ((double)num_accept)/((double)num_step)
-            << ", number of measurements = " << num_meas
-            << ", parallel tempering steps (or dump steps for no gpu) = " << ptemp_total
-            << ", parallel tempering move probability: " << ptemp_acc
-            << ", cluster size: " << cluster_avg/params.lengths[0]/params.lengths[1] << "\n\n\n";
+
+
 
 
 //
@@ -732,12 +759,13 @@ int main(int argc, char* argv[]){
 //      4. final results table ("results.csv") - this can be done later after results are shared via MPI
 //      5. correlation functions ("correlation#.csv")
 //
-	char dumpfile_name[100], corrfile_name[100], vortcorrfile_name[100], spacecorrfile_name[100], statefile_name[100];
+	char dumpfile_name[100], corrfile_name[100], vortcorrfile_name[100], spacecorrfile_name[100], statefile_name[100], ptempfile_name[100];
 	sprintf(dumpfile_name, "dump/dump%d.csv", id);
 	sprintf(corrfile_name, "dump/correlation%d.csv", id);
     sprintf(vortcorrfile_name, "dump/vort_corr%d.csv", id);
     sprintf(statefile_name, "dump/state%d.pbm", id);
     sprintf(spacecorrfile_name, "dump/space_corr%d.csv", id);
+    sprintf(ptempfile_name, "dump/ptemp.csv");
 
 	file.open(dumpfile_name);
     for (std::string name : results.names) {
@@ -764,16 +792,23 @@ int main(int argc, char* argv[]){
     results.write_results(&file, "space_corr");
     file.close();
 
+    if(id == 0 && ptemp_total > 0){
+        file.open(ptempfile_name);
+        results.write_results(&file, "send_to");
+        file.close();
+    }
+
 //
 //  Send results to master process for easy writing to a file
 //
     if(id == 0){
-        std::vector<double> ind_vars(p);//vector of independent variables (can change from alpha if this changes in earlier parts of the code)
+        std::vector<double> ind_vars(p), betas(p);//vector of independent variables (can change from alpha if this changes in earlier parts of the code)
         std::vector<double> locs(p), loc2s(p), loc4s(p), loc_binds(p), loc_bind_errs(p), 
                             mags(p), mag2s(p), mag4s(p), mag_binds(p), mag_bind_errs(p),
                             xmags(p), xmag2s(p), xmag4s(p), xmag_binds(p), xmag_bind_errs(p),
                             actions(p), sxs(p), xkinkss(p), stagger_mags(p), clusters(p), ptemp_ratios(p), traversals(p);
         ind_vars[0] = params.sbparams.A0;
+        betas[0] = params.beta;
 
         locs[0] = loc_avg;
         loc2s[0] = loc2_avg;
@@ -798,12 +833,13 @@ int main(int argc, char* argv[]){
         xkinkss[0] = xkinks_avg;
         stagger_mags[0] = stagger_mag_avg;
         clusters[0] = cluster_avg;
-	ptemp_ratios[0] = ptemp_acc;
+	    ptemp_ratios[0] = ptemp_acc;
         traversals[0] = traversal;
 
         MPI_Status Stat;
         for (int i = 1; i < p; ++i){
             MPI_Recv(&(ind_vars[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+            MPI_Recv(&(betas[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
 
             MPI_Recv(&(locs[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
             MPI_Recv(&(loc2s[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
@@ -832,15 +868,23 @@ int main(int argc, char* argv[]){
             MPI_Recv(&(traversals[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
 
         }
+        std::cout << "Results for process #" << id << ":\n";
+        timer.print_timers();
+        wolff.print_timers();
+        std::cout << "total steps = " << num_step << ", acceptance ratio = " << ((double)num_accept)/((double)num_step)
+                << ", number of measurements kept = " << num_meas
+                << ", parallel tempering steps (or dump steps for no gpu) = " << ptemp_total
+                << ", parallel tempering move probability: " << ptemp_acc
+                << ", cluster size: " << cluster_avg/params.lengths[0]/params.lengths[1] << "\n\n\n";
         //cout << "binder cumulants: " << vec2str(loc_binds) << "\n";
         //write results
         FILE * file;
         file = fopen("results.dat", "w");
-	    fprintf(file, "%-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s\n", 
-                "alpha", "loc2", "xmag2", "mag2", "loc_bind", "xmag_bind", "mag_bind", "sx", "xkinks", "xstagger", "action", "cluster", "ptemp_acc", "traversal");
+	    fprintf(file, "%-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s\n", 
+                "alpha", "beta", "loc2", "xmag2", "mag2", "sx", "xkinks", "xstagger", "action", "cluster", "ptemp_acc", "traversal");
         for (int i = 0; i < p; ++i){
-            fprintf(file, "%-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f\n", 
-                    ind_vars[i], loc2s[i], xmag2s[i], mag2s[i], loc_binds[i], xmag_binds[i], mag_binds[i], sxs[i], xkinkss[i], stagger_mags[i], 
+            fprintf(file, "%-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f\n", 
+                    ind_vars[i], betas[i], loc2s[i], xmag2s[i], mag2s[i], sxs[i], xkinkss[i], stagger_mags[i], 
                     actions[i]/params.lengths[0]/params.lengths[1], clusters[i]/params.lengths[0]/params.lengths[1], ptemp_ratios[i], traversals[i]);
         }
         fclose(file);
@@ -848,7 +892,8 @@ int main(int argc, char* argv[]){
         std::ofstream file2;
 
         file2.open("dump/results.csv");
-        file2 << "ind variable," << vec2str(ind_vars) << "\n";
+        file2 << "alpha," << vec2str(ind_vars) << "\n";
+        file2 << "beta," << vec2str(betas) << "\n";
         file2 << "loc," << vec2str(locs) << "\n";
         file2 << "loc2," << vec2str(loc2s) << "\n";
         file2 << "loc4," << vec2str(loc4s) << "\n";
@@ -870,12 +915,13 @@ int main(int argc, char* argv[]){
         file2 << "stagger_mag," << vec2str(stagger_mags) << "\n";
         file2 << "action," << vec2str(actions) << "\n";
         file2 << "cluster," << vec2str(clusters) << "\n";
-	file2 << "ptemp_acceptance," << vec2str(ptemp_ratios) << "\n";
+	    file2 << "ptemp_acceptance," << vec2str(ptemp_ratios) << "\n";
         file2 << "traversal," << vec2str(traversals) << "\n";
         file2.close();
     }
     else{
-        MPI_Send(&ind_var, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
+        MPI_Send(&params.sbparams.A0, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
+        MPI_Send(&params.beta, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
 
         MPI_Send(&loc_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
         MPI_Send(&loc2_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
@@ -902,7 +948,17 @@ int main(int argc, char* argv[]){
         MPI_Send(&cluster_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
         MPI_Send(&ptemp_acc, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
         MPI_Send(&traversal, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
-        
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(id*1000));
+
+        std::cout << "Results for process #" << id << ":\n";
+        timer.print_timers();
+        wolff.print_timers();
+        std::cout << "total steps = " << num_step << ", acceptance ratio = " << ((double)num_accept)/((double)num_step)
+                << ", number of measurements kept = " << num_meas
+                << ", parallel tempering steps (or dump steps for no gpu) = " << ptemp_total
+                << ", parallel tempering move probability: " << ptemp_acc
+                << ", cluster size: " << cluster_avg/params.lengths[0]/params.lengths[1] << "\n\n\n";
     }
 	
 //

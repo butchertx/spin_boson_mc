@@ -1,9 +1,9 @@
 vals    #input type for betas
-2       #number of betas per alpha
-20.48 40.96 #betas
+1       #number of betas per alpha
+20.48 #betas
 vals    #input type for alphas
-2       #number of alphas
-0.3 0.7 #alphas
-0 0 100 100   #metropolis steps (one for each alpha)
-0 0 0 0   #onesite steps (one for each alpha)
-10 10 0 0    #wolff steps (one for each alpha)
+4       #number of alphas
+0.3 0.7 1.0 1.3 #alphas
+0 0 100 100  #metropolis steps (one for each alpha)
+0 0 0 0  #onesite steps (one for each alpha)
+10 10 1 1   #wolff steps (one for each alpha)
