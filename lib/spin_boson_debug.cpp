@@ -24,6 +24,7 @@ flexible.
 #include "MemTimeTester.h"
 #include "obs_calc_fast.cuh"
 #include <thrust/inner_product.h>
+#include "fftw_helper.h"
 #include <thread>
 #include <chrono>
 extern "C" {
@@ -367,14 +368,14 @@ int main(int argc, char* argv[]){
 //  Set up measurement apparatus
 //
     class_mc_measurements results;
-    results.names = {"loc", "loc2", "loc4", "xmag", "xmag2", "xmag4", "mag", "mag2", "mag4", "sx", "xkinks", "stagger_mag", "action", "cluster"};
-    results.values = {{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}};
-    results.keep_function_names = {"space_corr", "send_to"};
+    results.names = {"loc", "loc2", "loc4", "xmag", "xmag2", "xmag4", "qmag", "qmag2", "qmag4", "mag", "mag2", "mag4", "sx", "xkinks", "loc_w1", "action", "cluster"};
+    results.values = {{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}};
+    results.keep_function_names = {"xcorr", "send_to"};
     results.keep_function_vals = {{{}}, {{}}};
     results.func_names = {"corr", "vort_corr"};
     results.function_num_measures = {0, 0};
     results.functions = {{}, {}};
-    double loc, xmag, mag, ptemp_moves = 0, ptemp_total = 0, traversal = 0;
+    double loc, locw1, qmag, xmag, mag, ptemp_moves = 0, ptemp_total = 0, traversal = 0;
     int num_meas = 0, num_accept = 0, num_step = 0;
 
     if (gpu && params.sbparams.A0 != 0){
@@ -542,28 +543,6 @@ int main(int argc, char* argv[]){
             lat.get_thrust_vector(thrustlat_ref);
             fast_action = cufft_calc_action_prealloc(thrustlat_ref, thrustint_ref, temp_corr, lat.get_Lx(), lat.get_Ly(), 
                 full_forward_plan, full_backward_plan, cuda_status, full_state_rs, full_state_ft);
-            wolff.set_mag(latref);
-            loc = wolff.calc_loc(latref);
-            xmag = wolff.calc_xmag(latref);
-            mag = wolff.calc_mag(latref);
-
-            results.record("loc", loc);
-            results.record("loc2", loc*loc);
-            results.record("loc4", loc*loc*loc*loc);
-
-            results.record("xmag", xmag);
-            results.record("xmag2", xmag*xmag);
-            results.record("xmag4", xmag*xmag*xmag*xmag);
-
-            results.record("mag", mag);
-            results.record("mag2", mag*mag);
-            results.record("mag4", mag*mag*mag*mag);
-
-            results.record("sx", wolff.calc_sx(latref));
-            results.record("xkinks", wolff.calc_space_kinks(latref));
-            results.record("stagger_mag", wolff.calc_sz_stagger(latref));
-            results.record("action", fast_action);
-            results.record("cluster", wolff.get_cluster_size());
 
             if(measure > params.throwaway_measures){
                 //only measure correlation functions after throwaway measures
@@ -575,21 +554,49 @@ int main(int argc, char* argv[]){
                     vort_corr_measure[i] = vort_corr_ref[i];
                 }
                 for(int x = 0; x < lat.get_Lx(); ++x){
-                    space_corr_measure[x] = 0.0;
-                    for(int y = 0; y < lat.get_Ly(); ++y){
-                        space_corr_measure[x] += corr_measure[x*lat.get_Ly() + y]/(lat.get_Ly());
-                    }
+                    space_corr_measure[x] = temp_corr[x*lat.get_Ly()]/lat.get_N()/lat.get_N();
                 }
                 
-                results.record_keep_function("space_corr", space_corr_measure);
+                //results.record_keep_function("xcorr", space_corr_measure);
                 results.record("corr", corr_measure);
                 results.record("vort_corr", vort_corr_measure);
                 ++num_meas;
 
-                if(params.alg.compare("write_states") == 0){
+                if(params.alg.compare("write_states") == 0 && measure > params.throwaway_measures){
                     write_state_pbm(id, measure - params.throwaway_measures, latref);
                 }
             }
+
+            wolff.set_mag(latref);
+            loc = wolff.calc_loc(latref);
+            locw1 = wolff.calc_locw1(latref, 2 * M_PI / params.beta);
+            qmag = wolff.calc_mqt0_abs(latref, params.Qa);
+            xmag = wolff.calc_xmag(latref);
+            mag = wolff.calc_mag(latref);
+
+
+            results.record("loc", loc);
+            results.record("loc2", wolff.calc_loc2(latref));
+            results.record("loc4", wolff.calc_loc4(latref));
+
+            results.record("xmag", xmag);
+            results.record("xmag2", wolff.calc_xmag2(latref));
+            results.record("xmag4", wolff.calc_xmag4(latref));
+
+            results.record("qmag", qmag);
+            results.record("qmag2", wolff.calc_mqt0_2_abs(latref, params.Qa));
+            results.record("qmag4", wolff.calc_mqt0_4_abs(latref, params.Qa));
+
+            results.record("mag", sqrt(mag*mag));
+            results.record("mag2", mag*mag);
+            results.record("mag4", mag*mag*mag*mag);
+
+            results.record("sx", wolff.calc_sx(latref));
+            results.record("xkinks", wolff.calc_space_kinks(latref));
+            results.record("loc_w1", locw1);
+            results.record("action", fast_action);
+            results.record("cluster", wolff.get_cluster_size());
+
             timer.flag_end_time("measurements");
 
             //parallel tempering
@@ -638,8 +645,39 @@ int main(int argc, char* argv[]){
         if(id == 0){
             std::cout << "Can only use wolff steps and no parallel tempering\n";
         }
+        double fast_action = 0;
         std::vector<double> corr_dummy(1);
 	    double metropolis_action = -1.0;
+        std::vector<double> thrustlat;
+        thrustlat.shrink_to_fit();
+        std::vector<double>& thrustlat_ref = thrustlat;
+        lat.get_std_vector(thrustlat_ref);
+
+        std::vector<double> thrustint;
+        thrustint = wolff.get_interaction_vector();
+        thrustint.shrink_to_fit();
+        std::vector<double>& thrustint_ref = thrustint;
+        
+
+        std::vector<double> correlation(latref.get_Lx()*latref.get_Ly());
+        correlation.shrink_to_fit();
+        std::vector<double>& temp_corr = correlation;
+        std::vector<double> corr_measure(latref.get_Lx()*latref.get_Ly());
+        corr_measure.shrink_to_fit();
+
+        std::vector<double> vort_state(latref.get_Lx()*latref.get_Ly());
+        vort_state.shrink_to_fit();
+        std::vector<double> vort_corr(latref.get_Lx()*latref.get_Ly());
+        vort_corr.shrink_to_fit();
+        std::vector<double>& vort_state_ref = vort_state;
+        std::vector<double>& vort_corr_ref = vort_corr;
+        std::vector<double> vort_corr_measure(latref.get_Lx()*latref.get_Ly());
+        vort_corr_measure.shrink_to_fit();
+
+        std::vector<double> space_corr_measure(latref.get_Lx());
+        space_corr_measure.shrink_to_fit();
+        std::vector<double> send_to_measure(p);
+        bool ptemp_switch = false;
 
         //  
         //  Run Measurements
@@ -667,18 +705,46 @@ int main(int argc, char* argv[]){
 
             //Measure
             timer.flag_start_time("measurements");
+            latref.get_std_vector(thrustlat_ref);
+            thrustlat = thrustlat_ref;
+            fast_action = calc_action_fft(temp_corr, thrustint, thrustlat, latref.get_Lx(), latref.get_Ly());
+
+            if(measure > params.throwaway_measures){
+                lat.get_std_vort_state(vort_state_ref);
+                vort_state = vort_state_ref;
+                calc_action_fft(vort_corr_ref, thrustint, vort_state, lat.get_Lx(), lat.get_Ly());
+                for(int i = 0; i < temp_corr.size(); ++i){
+                    corr_measure[i] = temp_corr.size()*temp_corr[i];
+                    vort_corr_measure[i] = vort_corr.size()*vort_corr_ref[i];
+                }
+                for(int x = 0; x < lat.get_Lx(); ++x){
+                    space_corr_measure[x] = temp_corr[x*lat.get_Ly()]/lat.get_N()/lat.get_N();
+                }
+                results.record("corr", corr_measure);
+                results.record("vort_corr", vort_corr_measure);
+                //results.record_keep_function("xcorr", corr_dummy);
+                ++num_meas;
+            }
+
             wolff.set_mag(latref);
             loc = wolff.calc_loc(latref);
+            locw1 = wolff.calc_locw1(latref, 2 * M_PI / params.beta);
+            qmag = wolff.calc_mqt0_abs(latref, params.Qa);
             xmag = wolff.calc_xmag(latref);
             mag = wolff.calc_mag(latref);
 
+
             results.record("loc", loc);
-            results.record("loc2", loc*loc);
-            results.record("loc4", loc*loc*loc*loc);
+            results.record("loc2", wolff.calc_loc2(latref));
+            results.record("loc4", wolff.calc_loc4(latref));
 
             results.record("xmag", xmag);
-            results.record("xmag2", xmag*xmag);
-            results.record("xmag4", xmag*xmag*xmag*xmag);
+            results.record("xmag2", wolff.calc_xmag2(latref));
+            results.record("xmag4", wolff.calc_xmag4(latref));
+
+            results.record("qmag", qmag);
+            results.record("qmag2", wolff.calc_mqt0_2_abs(latref, params.Qa));
+            results.record("qmag4", wolff.calc_mqt0_4_abs(latref, params.Qa));
 
             results.record("mag", mag);
             results.record("mag2", mag*mag);
@@ -686,17 +752,32 @@ int main(int argc, char* argv[]){
 
             results.record("sx", wolff.calc_sx(latref));
             results.record("xkinks", wolff.calc_space_kinks(latref));
-            results.record("stagger_mag", wolff.calc_sz_stagger(latref));
-            results.record("action", 1.0);
+            results.record("loc_w1", locw1);
+            results.record("action", fast_action);
             results.record("cluster", wolff.get_cluster_size());
-            if(measure > params.throwaway_measures){
-                results.record("corr", corr_dummy);
-                results.record("vort_corr", corr_dummy);
-                results.record_keep_function("space_corr", corr_dummy);
-                results.record_keep_function("send_to", corr_dummy);
-                ++num_meas;
-            }
+
+
             timer.flag_end_time("measurements");
+            if(params.alg.compare("write_states") == 0 && measure > params.throwaway_measures){
+                write_state_pbm(id, measure - params.throwaway_measures, latref);
+            }
+
+            //parallel tempering
+            if(mpi_use && measure%params.ptemp_steps == 0){
+                //shuffle the lattices
+                timer.flag_start_time("parallel tempering");
+                fast_action = ptemp(p, id, fast_action, params.sbparams.A0, params.Js[1], wolff.calc_sx(latref), 
+                                    params.Js[0], wolff.calc_space_kinks(latref), latref, &ptemp_switch, send_to_measure);
+                if (ptemp_switch){
+                    ptemp_moves += 1.0;
+                    traversal += 1.0;
+                }
+                wolff.set_mag(latref);
+                timer.flag_end_time("parallel tempering");
+                ptemp_total += 1.0;
+                results.record_keep_function("send_to", send_to_measure);
+            }
+
             if(id == 0){
                 std::cout << "measurement step " << measure << " out of " 
                     << (params.kept_measures + params.throwaway_measures) << " completed\n";
@@ -709,8 +790,9 @@ int main(int argc, char* argv[]){
 //
     double loc_avg, loc2_avg, loc4_avg, loc_bind_avg, loc_bind_err, 
             xmag_avg, xmag2_avg, xmag4_avg, xmag_bind_err, xmag_bind_avg, 
+            qmag_avg, qmag2_avg, qmag4_avg, qmag_bind_err, qmag_bind_avg,
             mag_avg, mag2_avg, mag4_avg, mag_bind_err, mag_bind_avg, 
-            action_avg, sx_avg, xkinks_avg, stagger_mag_avg, cluster_avg, ptemp_acc;
+            action_avg, sx_avg, xkinks_avg, locw1_avg, cluster_avg, ptemp_acc;
     std::vector<double> corr_avg = results.get_func("corr");
     corr_avg.shrink_to_fit();
     std::vector<double> vort_corr_avg = results.get_func("vort_corr");
@@ -723,25 +805,31 @@ int main(int argc, char* argv[]){
     loc_avg = mean(results.get_vals("loc"));
     loc2_avg = mean(results.get_vals("loc2"));
     loc4_avg = mean(results.get_vals("loc4"));
-    loc_bind_avg = loc4_avg/loc2_avg/loc2_avg;
+    loc_bind_avg = 1 - loc4_avg/loc2_avg/loc2_avg/3.0;
     loc_bind_err = bootstrap(results.get_vals("loc2"), 500, "binder");
 
     xmag_avg = mean(results.get_vals("xmag"));
     xmag2_avg = mean(results.get_vals("xmag2"));
     xmag4_avg = mean(results.get_vals("xmag4"));
-    xmag_bind_avg = xmag4_avg/xmag2_avg/xmag2_avg;
+    xmag_bind_avg = 1 - xmag4_avg/xmag2_avg/xmag2_avg/3.0;
     xmag_bind_err = bootstrap(results.get_vals("xmag2"), 500, "binder");
+
+    qmag_avg = mean(results.get_vals("qmag"));
+    qmag2_avg = mean(results.get_vals("qmag2"));
+    qmag4_avg = mean(results.get_vals("qmag4"));
+    qmag_bind_avg = 1 - qmag4_avg/qmag2_avg/qmag2_avg/3.0;
+    qmag_bind_err = bootstrap(results.get_vals("qmag2"), 500, "binder");
 
     mag_avg = mean(results.get_vals("mag"));
     mag2_avg = mean(results.get_vals("mag2"));
     mag4_avg = mean(results.get_vals("mag4"));
-    mag_bind_avg = mag4_avg/mag2_avg/mag2_avg;
+    mag_bind_avg = 1 - mag4_avg/mag2_avg/mag2_avg/3.0;
     mag_bind_err = bootstrap(results.get_vals("mag2"), 500, "binder");
 
     action_avg = mean(results.get_vals("action"));
     sx_avg = mean(results.get_vals("sx"));
     xkinks_avg = mean(results.get_vals("xkinks"));
-    stagger_mag_avg = mean(results.get_vals("stagger_mag"));
+    locw1_avg = mean(results.get_vals("loc_w1"));
     cluster_avg = mean(results.get_vals("cluster"));
     ptemp_acc = ptemp_moves/ptemp_total;
 
@@ -764,12 +852,18 @@ int main(int argc, char* argv[]){
 	sprintf(corrfile_name, "dump/correlation%d.csv", id);
     sprintf(vortcorrfile_name, "dump/vort_corr%d.csv", id);
     sprintf(statefile_name, "dump/state%d.pbm", id);
-    sprintf(spacecorrfile_name, "dump/space_corr%d.csv", id);
+    sprintf(spacecorrfile_name, "dump/xcorr%d.csv", id);
     sprintf(ptempfile_name, "dump/ptemp.csv");
 
 	file.open(dumpfile_name);
-    for (std::string name : results.names) {
-        file << name << "," << vec2str(results.get_vals(name)) << "\n";
+    if(params.kept_measures >= 1){
+        //write results as columns instead of rows
+        results.write_results(&file, "vals");
+    }
+    else{
+        for (std::string name : results.names) {
+            file << name << "," << vec2str(results.get_vals(name)) << "\n";
+        }
     }
     file.close();
 
@@ -789,7 +883,7 @@ int main(int argc, char* argv[]){
     file.close();
 
     file.open(spacecorrfile_name);
-    results.write_results(&file, "space_corr");
+    //results.write_results(&file, "xcorr");
     file.close();
 
     if(id == 0 && ptemp_total > 0){
@@ -806,7 +900,8 @@ int main(int argc, char* argv[]){
         std::vector<double> locs(p), loc2s(p), loc4s(p), loc_binds(p), loc_bind_errs(p), 
                             mags(p), mag2s(p), mag4s(p), mag_binds(p), mag_bind_errs(p),
                             xmags(p), xmag2s(p), xmag4s(p), xmag_binds(p), xmag_bind_errs(p),
-                            actions(p), sxs(p), xkinkss(p), stagger_mags(p), clusters(p), ptemp_ratios(p), traversals(p);
+                            qmags(p), qmag2s(p), qmag4s(p), qmag_binds(p), qmag_bind_errs(p),
+                            actions(p), sxs(p), xkinkss(p), locw1s(p), clusters(p), ptemp_ratios(p), traversals(p);
         ind_vars[0] = params.sbparams.A0;
         betas[0] = params.beta;
 
@@ -824,14 +919,20 @@ int main(int argc, char* argv[]){
 
         xmags[0] = xmag_avg;
         xmag2s[0] = xmag2_avg;
-        xmag4s[0] = mag4_avg;
+        xmag4s[0] = xmag4_avg;
         xmag_binds[0] = xmag_bind_avg;
         xmag_bind_errs[0] = xmag_bind_err;
+
+        qmags[0] = qmag_avg;
+        qmag2s[0] = qmag2_avg;
+        qmag4s[0] = qmag4_avg;
+        qmag_binds[0] = qmag_bind_avg;
+        qmag_bind_errs[0] = qmag_bind_err;
 
         actions[0] = action_avg;
         sxs[0] = sx_avg;
         xkinkss[0] = xkinks_avg;
-        stagger_mags[0] = stagger_mag_avg;
+        locw1s[0] = locw1_avg;
         clusters[0] = cluster_avg;
 	    ptemp_ratios[0] = ptemp_acc;
         traversals[0] = traversal;
@@ -847,22 +948,28 @@ int main(int argc, char* argv[]){
             MPI_Recv(&(loc_binds[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
             MPI_Recv(&(loc_bind_errs[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
 
-            MPI_Recv(&(mags[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
-            MPI_Recv(&(mag2s[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
-            MPI_Recv(&(mag4s[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
-            MPI_Recv(&(mag_binds[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
-            MPI_Recv(&(mag_bind_errs[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
-
             MPI_Recv(&(xmags[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
             MPI_Recv(&(xmag2s[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
             MPI_Recv(&(xmag4s[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
             MPI_Recv(&(xmag_binds[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
             MPI_Recv(&(xmag_bind_errs[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
 
+            MPI_Recv(&(qmags[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+            MPI_Recv(&(qmag2s[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+            MPI_Recv(&(qmag4s[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+            MPI_Recv(&(qmag_binds[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+            MPI_Recv(&(qmag_bind_errs[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+
+            MPI_Recv(&(mags[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+            MPI_Recv(&(mag2s[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+            MPI_Recv(&(mag4s[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+            MPI_Recv(&(mag_binds[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+            MPI_Recv(&(mag_bind_errs[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+
             MPI_Recv(&(actions[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
             MPI_Recv(&(sxs[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
             MPI_Recv(&(xkinkss[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
-            MPI_Recv(&(stagger_mags[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
+            MPI_Recv(&(locw1s[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
             MPI_Recv(&(clusters[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
             MPI_Recv(&(ptemp_ratios[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
             MPI_Recv(&(traversals[i]), 1, MPI_DOUBLE, i, i, MPI_COMM_WORLD, &Stat);
@@ -880,11 +987,11 @@ int main(int argc, char* argv[]){
         //write results
         FILE * file;
         file = fopen("results.dat", "w");
-	    fprintf(file, "%-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s\n", 
-                "alpha", "beta", "loc2", "xmag2", "mag2", "sx", "xkinks", "xstagger", "action", "cluster", "ptemp_acc", "traversal");
+	    fprintf(file, "%-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s %-10.10s\n", 
+                "alpha", "beta", "loc2", "xmag_sq", "magQ_sq", "mag2", "locw1", "sx", "xkinks", "action", "cluster", "ptemp_acc", "traversal");
         for (int i = 0; i < p; ++i){
-            fprintf(file, "%-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f\n", 
-                    ind_vars[i], betas[i], loc2s[i], xmag2s[i], mag2s[i], sxs[i], xkinkss[i], stagger_mags[i], 
+            fprintf(file, "%-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f %-10.6f\n", 
+                    ind_vars[i], betas[i], loc2s[i], xmag2s[i], qmag2s[i], mag2s[i], locw1s[i], sxs[i], xkinkss[i],
                     actions[i]/params.lengths[0]/params.lengths[1], clusters[i]/params.lengths[0]/params.lengths[1], ptemp_ratios[i], traversals[i]);
         }
         fclose(file);
@@ -897,13 +1004,18 @@ int main(int argc, char* argv[]){
         file2 << "loc," << vec2str(locs) << "\n";
         file2 << "loc2," << vec2str(loc2s) << "\n";
         file2 << "loc4," << vec2str(loc4s) << "\n";
-        file2 << "binder_y," << vec2str(loc_binds) << "\n";
-        file2 << "binder_y_err," << vec2str(loc_bind_errs) << "\n";
+        file2 << "binder_loc," << vec2str(loc_binds) << "\n";
+        file2 << "binder_loc_err," << vec2str(loc_bind_errs) << "\n";
         file2 << "xmag," << vec2str(xmags) << "\n";
         file2 << "xmag2," << vec2str(xmag2s) << "\n";
         file2 << "xmag4," << vec2str(xmag4s) << "\n";
         file2 << "binder_x," << vec2str(xmag_binds) << "\n";
         file2 << "binder_x_err," << vec2str(xmag_bind_errs) << "\n";
+        file2 << "qmag," << vec2str(qmags) << "\n";
+        file2 << "qmag2," << vec2str(qmag2s) << "\n";
+        file2 << "qmag4," << vec2str(qmag4s) << "\n";
+        file2 << "binder_q," << vec2str(qmag_binds) << "\n";
+        file2 << "binder_q_err," << vec2str(qmag_bind_errs) << "\n";
         file2 << "mag," << vec2str(mags) << "\n";
         file2 << "mag2," << vec2str(mag2s) << "\n";
         file2 << "mag4," << vec2str(mag4s) << "\n";
@@ -912,7 +1024,7 @@ int main(int argc, char* argv[]){
 
         file2 << "sx," << vec2str(sxs) << "\n";
         file2 << "xkinks," << vec2str(xkinkss) << "\n";
-        file2 << "stagger_mag," << vec2str(stagger_mags) << "\n";
+        file2 << "locw1," << vec2str(locw1s) << "\n";
         file2 << "action," << vec2str(actions) << "\n";
         file2 << "cluster," << vec2str(clusters) << "\n";
 	    file2 << "ptemp_acceptance," << vec2str(ptemp_ratios) << "\n";
@@ -929,22 +1041,28 @@ int main(int argc, char* argv[]){
         MPI_Send(&loc_bind_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
         MPI_Send(&loc_bind_err, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
 
-        MPI_Send(&mag_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
-        MPI_Send(&mag2_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
-        MPI_Send(&mag4_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
-        MPI_Send(&mag_bind_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
-        MPI_Send(&mag_bind_err, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
-
         MPI_Send(&xmag_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
         MPI_Send(&xmag2_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
         MPI_Send(&xmag4_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
         MPI_Send(&xmag_bind_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
         MPI_Send(&xmag_bind_err, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
 
+        MPI_Send(&qmag_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
+        MPI_Send(&qmag2_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
+        MPI_Send(&qmag4_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
+        MPI_Send(&qmag_bind_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
+        MPI_Send(&qmag_bind_err, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
+
+        MPI_Send(&mag_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
+        MPI_Send(&mag2_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
+        MPI_Send(&mag4_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
+        MPI_Send(&mag_bind_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
+        MPI_Send(&mag_bind_err, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
+
         MPI_Send(&action_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
         MPI_Send(&sx_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
         MPI_Send(&xkinks_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
-        MPI_Send(&stagger_mag_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
+        MPI_Send(&locw1_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
         MPI_Send(&cluster_avg, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
         MPI_Send(&ptemp_acc, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);
         MPI_Send(&traversal, 1, MPI_DOUBLE, 0, id, MPI_COMM_WORLD);

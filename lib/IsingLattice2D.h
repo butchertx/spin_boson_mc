@@ -127,7 +127,33 @@ public:
 		}
     }
 
+    void get_std_vector(std::vector<double>& result){
+		if (result.size() != Lx*Ly){
+			result.resize(Lx*Ly);
+		}
+		for (int i = 0; i < Lx; ++i){
+			for (int j = 0; j < Ly; ++j){
+				result[i*Ly + j] = (double) spins[i][j];
+			}
+		}
+    }
+
 	void get_vort_state(thrust::host_vector<double>& vort){
+		if (vort.size() != Lx*Ly){
+			vort.resize(Lx*Ly);
+		}
+		int prev_val;
+		for (int i = 0; i < Lx; ++i){
+			prev_val = spins[i][0];
+			for (int j = 0; j < Ly-1; ++j){
+				vort[i*Ly + j] = 0.5*(spins[i][j+1] - prev_val);
+				prev_val = spins[i][j+1];
+			}
+			vort[i*Ly + Ly - 1] = 0.5*(spins[i][0] - prev_val);
+		}
+	}
+
+    void get_std_vort_state(std::vector<double>& vort){
 		if (vort.size() != Lx*Ly){
 			vort.resize(Lx*Ly);
 		}

@@ -20,16 +20,17 @@ struct spin_boson_params {
 struct class_mc_params {
 	int dim, rand_seed, metropolis_steps, onesite_steps, 
 		wolff_steps, kept_measures, throwaway_measures, ptemp_steps;
-	double beta, h, kT;
+	double beta, h, kT, Qa;
 	std::vector<int> lengths;
 	std::vector<double> spacings;
 	std::vector<double> Js;
-	std::string cutoff_type, lattice, alg;
+	std::string cutoff_type, lattice, boundary, alg;
 	spin_boson_params sbparams;
 	std::string to_string() {
 		std::stringstream ss;
 		ss << "Dimension: " << dim << "\n";
 		ss << "Starting Lattice type: " << lattice << "\n";
+        ss << "Boundary Condition: " << boundary << "\n";
 		ss << "Dimension lengths: ";
 		for (auto const& value : lengths) {
 			ss << value << " ";
@@ -66,6 +67,9 @@ struct class_mc_params {
 		ss << "Delta: " << sbparams.delta << "\n";
 		ss << "V: " << sbparams.v << "\n";
 		ss << "omega_c: " << sbparams.omega_c << "\n";
+        ss << "Qa: " << sbparams.omega_c * spacings[0] / sbparams.v << "\n";
+        ss << "Qa/2pi: " << sbparams.omega_c * spacings[0] / sbparams.v / (6.283185) << "\n";
+        ss << "QL: " << Qa * lengths[0] << "\n";
 
 		return ss.str();
 	}
@@ -92,12 +96,15 @@ struct class_mc_measurements {
 		//f must be open. type says "vals", "keep_function_names[i]", or "states"
 		if(f->is_open()){
 			if(type.compare("vals")==0){
-				for (int i = 0; i < names.size(); ++i) {
-        			*f << names[i] ;
-					for(int j = 0; j < values[i].size(); ++j){
-						*f << "," << values[i][j];
+				for (int i = 0; i < names.size()-1; ++i) {
+        			*f << names[i] << ",";
+                }
+        	    *f << names[names.size()-1] << "\n";
+                for(int j = 0; j < values[0].size(); ++j){
+                    for (int i = 0; i < values.size()-1; ++i) {
+						*f << values[i][j] << ",";
 					}
-					*f << "\n";
+					*f << values[values.size()-1][j] << "\n";
     			}
 			}
 			else if(type.compare("states")==0){

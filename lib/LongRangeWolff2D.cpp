@@ -82,8 +82,18 @@ void GeneralLRW::set_spin_boson_model(class_mc_params params){
 	//model is translationally invariant, so (i,j) will represent a distance in the (spacial, imaginary time) direction
 	double g = params.sbparams.g, A = params.sbparams.A0, gamma = params.Js[1], J = params.Js[0], v = params.sbparams.v, a = params.spacings[0], tc = params.spacings[1], x, y;
 	int Nt = params.lengths[1], Lx = params.lengths[0];
+    double beta = tc * Nt;
+    double y_mirror = 0.0;
 	for (int i = 0; i < interactions.size(); ++i) {
+        if(params.boundary.compare("chord") == 0){
+            y = a * Lx / M_PI * sin(M_PI * i / Lx) / v / beta;
+        }
+        else{
+            y = M_PI*a * i / v / beta;
+            y_mirror = (i == 0) ? 0.0 : M_PI*a * (Lx - i) / v / beta;
+        }
 		for (int j = 0; j < interactions[i].size(); ++j) {
+            interactions[i][j] = 0.0;
 			if (i == 0) {
 				//temporal nearest neighbor interaction
 				if (j == 1 || j == Nt - 1) {
@@ -97,29 +107,37 @@ void GeneralLRW::set_spin_boson_model(class_mc_params params){
 			else if (j == 0) {
 				//spacial nearest neighbor interactions
 				if (i == 1 || i == Lx - 1) {
-					interactions[i][j] = -J + A*M_PI*M_PI / Nt / Nt / sinh(M_PI * a / Nt / v / tc) / sinh(M_PI * a / Nt / v / tc);
+					interactions[i][j] = -J;
 				}
 				//spacial same-time long range interactions
-				if (i > 1 && i < Lx - 1) {
-					if (i > Lx / 2){
-						interactions[i][j] = A*M_PI*M_PI / Nt / Nt / sinh(M_PI * a * (Lx - i) / Nt / v / tc) / sinh(M_PI * a * (Lx - i) / Nt / v / tc);
+				if (i >= 1 && i <= Lx - 1) {
+					if (params.boundary.compare("pbc") == 0){
+						interactions[i][j] += A*M_PI*M_PI / Nt / Nt *(0.5 / sinh(y) / sinh(y) + 0.5 / sinh(y_mirror) / sinh(y_mirror));
 					}
 					else{
-						interactions[i][j] = A*M_PI*M_PI / Nt / Nt / sinh(M_PI * a * i / Nt / v / tc) / sinh(M_PI * a * i / Nt / v / tc);
+						interactions[i][j] += A*M_PI*M_PI / Nt / Nt / sinh(y) / sinh(y);
 					}
 				}
 			}
 			else {
 				//different site, different time interactions
 				x = M_PI*j / Nt;
-				if (i > Lx / 2){
-					y = M_PI*(Lx - i)*a / v / Nt / tc;;
-				}
-				else{
-					y = M_PI*i*a / v / Nt / tc;
-				}
-				interactions[i][j] = -M_PI*M_PI*A / Nt / Nt*(sin(x)*sin(x)*cosh(y)*cosh(y) - cos(x)*cos(x)*sinh(y)*sinh(y)) /
-					((sin(x)*sin(x)*cosh(y)*cosh(y) + cos(x)*cos(x)*sinh(y)*sinh(y))*(sin(x)*sin(x)*cosh(y)*cosh(y) + cos(x)*cos(x)*sinh(y)*sinh(y)));
+                if(params.boundary.compare("pbc") == 0){
+                    if(cosh(y) < 1e10 ){
+                     //   std::cout << "Interaction denom = "  << sin(x)*sin(x) + cos(x)*cos(x)*tanh(y)*tanh(y) << "\n";
+                        interactions[i][j] -= 0.5*M_PI*M_PI*A / Nt / Nt*(sin(x)*sin(x) - cos(x)*cos(x)*tanh(y)*tanh(y)) /
+                            (cosh(y)*cosh(y)*(sin(x)*sin(x) + cos(x)*cos(x)*tanh(y)*tanh(y))*(sin(x)*sin(x) + cos(x)*cos(x)*tanh(y)*tanh(y)));
+                    }
+                    if(cosh(y_mirror) < 1e10 ){
+                    //    std::cout << "Interaction denom = "  << sin(x)*sin(x) + cos(x)*cos(x)*tanh(y_mirror)*tanh(y_mirror) << "\n";
+                        interactions[i][j] -= 0.5*M_PI*M_PI*A / Nt / Nt*(sin(x)*sin(x) - cos(x)*cos(x)*tanh(y_mirror)*tanh(y_mirror)) /
+                            (cosh(y_mirror)*cosh(y_mirror)*(sin(x)*sin(x) + cos(x)*cos(x)*tanh(y_mirror)*tanh(y_mirror))*(sin(x)*sin(x) + cos(x)*cos(x)*tanh(y_mirror)*tanh(y_mirror)));
+                    }
+                }
+                else{
+                    interactions[i][j] -= M_PI*M_PI*A / Nt / Nt*(sin(x)*sin(x)*cosh(y)*cosh(y) - cos(x)*cos(x)*sinh(y)*sinh(y)) /
+                        ((sin(x)*sin(x)*cosh(y)*cosh(y) + cos(x)*cos(x)*sinh(y)*sinh(y))*(sin(x)*sin(x)*cosh(y)*cosh(y) + cos(x)*cos(x)*sinh(y)*sinh(y)));
+                }
 			}
 		}
 	}
@@ -132,10 +150,21 @@ void GeneralLRW::set_spin_boson_model_wc_exp(class_mc_params params){
 	double beta = tc*Nt;
 	double omcb = 1.0 / wc / beta;//1/beta/omega_c
 	double prefactor = A / Nt / Nt;
+    double K_int = 0.0;
+    double y_mirror = 0.0;
 	for (int i = 0; i < interactions.size(); ++i) {
-		y = (i > Lx / 2) ? a * (Lx - i) / v / beta : y = a * i / v / beta;//periodic boundary condition in spatial direction
+        if(params.boundary.compare("chord") == 0){
+            y = a * Lx / M_PI * sin(M_PI * i / Lx) / v / beta;
+        }
+        else{
+            y = a * i / v / beta;
+            y_mirror = (i == 0) ? 0.0 : a * (Lx - i) / v / beta;
+        }
 		for (int j = 0; j < interactions[i].size(); ++j) {
 			x = ((double)j) / Nt;//scaled time coordinate
+            if(params.boundary.compare("pbc") == 0){
+                y = y > y_mirror ? y_mirror : y;
+            }
 			if (i == 0) {
 				//temporal nearest neighbor interaction
 				if (j == 1 || j == Nt - 1) {
@@ -150,7 +179,7 @@ void GeneralLRW::set_spin_boson_model_wc_exp(class_mc_params params){
 				//spacial nearest neighbor interactions
 				if (i == 1 || i == Lx - 1) {
 					interactions[i][j] = - J - prefactor * (real_trigamma_cmplxarg(x + omcb, y, 10, 10) + real_trigamma_cmplxarg(1 - x + omcb, y, 10, 10)
-																+ real_trigamma_cmplxarg(x + omcb, -y, 10, 10) + real_trigamma_cmplxarg(1 - x + omcb, -y, 10, 10));
+                                                            + real_trigamma_cmplxarg(x + omcb, -y, 10, 10) + real_trigamma_cmplxarg(1 - x + omcb, -y, 10, 10));
 				}
 				//spacial same-time long range interactions
 				if (i > 1 && i < Lx - 1) {
@@ -174,33 +203,50 @@ void GeneralLRW::set_spin_boson_model_wc_hard(class_mc_params params){
 	double beta = tc*Nt;
 	double omcb = 1.0 / wc / beta;//1/beta/omega_c
 	double prefactor = A / Nt / Nt;
+    double K_int = 0.0;
+    double y_mirror = 0.0;
 	for (int i = 0; i < interactions.size(); ++i) {
-		y = (i > Lx / 2) ? a * (Lx - i) / v / beta : y = a * i / v / beta;//periodic boundary condition in spatial direction
+        if(params.boundary.compare("chord") == 0){
+            y = a * Lx / M_PI * sin(M_PI * i / Lx) / v / beta;
+        }
+        else{
+            y = a * i / v / beta;
+            y_mirror = (i == 0) ? 0.0 : a * (Lx - i) / v / beta;
+        }
 		for (int j = 0; j < interactions[i].size(); ++j) {
 			x = ((double)j) / Nt;//scaled time coordinate
+            if(params.boundary.compare("pbc") == 0 && !(x == 0 && y == 0)){
+                K_int = 0.5*( -simpson_3_8(A, Nt, 1.0/omcb, y, x, 10000) - simpson_3_8(A, Nt, 1.0/omcb, y_mirror, x, 10000));
+            }
+            else if(x != 0 || y != 0){
+                K_int = -simpson_3_8(A, Nt, 1.0/omcb, y, x, 10000);
+            }
+            else{
+                K_int = 0;
+            }
 			if (i == 0) {
 				//temporal nearest neighbor interaction
 				if (j == 1 || j == Nt - 1) {
-					interactions[i][j] = -gamma - 0.5*simpson_3_8(A, Nt, 1.0/omcb, y, x, 10000);
+					interactions[i][j] = -gamma + 0.5*K_int;
 				}
 				//temporal self-interaction
 				if (j > 1 && j < Nt - 1) {
-					interactions[i][j] = - 0.5*simpson_3_8(A, Nt, 1.0/omcb, y, x, 10000);
+					interactions[i][j] = 0.5*K_int;
 				}
 			}
 			else if (j == 0) {
 				//spacial nearest neighbor interactions
 				if (i == 1 || i == Lx - 1) {
-					interactions[i][j] = - J - simpson_3_8(A, Nt, 1.0/omcb, y, x, 10000);
+					interactions[i][j] = - J + K_int;
 				}
 				//spacial same-time long range interactions
 				if (i > 1 && i < Lx - 1) {
-					interactions[i][j] = - simpson_3_8(A, Nt, 1.0/omcb, y, x, 10000);
+					interactions[i][j] = K_int;
 				}
 			}
 			else {
 				//different site, different time interactions
-				interactions[i][j] = - simpson_3_8(A, Nt, 1.0/omcb, y, x, 10000);
+				interactions[i][j] = K_int;
 			}
 		}
 	}
@@ -222,6 +268,71 @@ void GeneralLRW::set_site_sums(){
 	for (int i = 0; i < interaction_sum.size(); ++i){
 		site_sums.push_back(interaction_sum[i][interaction_sum[i].size() - 1]);
 	}
+}
+
+double GeneralLRW::calc_mqt0_abs(IsingLattice2D& lat, double Qa){
+    double real_part = 0, imag_part = 0, result = 0, norm = 1.0/lat.get_Lx();
+    for (int j = 0; j < lat.get_Ly(); ++j){
+        real_part = 0;
+        imag_part = 0;
+        for (int i = 0; i < lat.get_Lx(); ++i){
+            real_part += lat.get_spin(i, j) * cos(Qa * i);
+            imag_part += lat.get_spin(i, j) * sin(Qa * i);
+        }
+        result += norm * sqrt(real_part * real_part + imag_part * imag_part);
+    }
+    return result/(lat.get_Ly());
+}
+
+double GeneralLRW::calc_mqt0_2_abs(IsingLattice2D& lat, double Qa){
+    double real_part = 0, imag_part = 0, result = 0, norm = 1.0/lat.get_Lx();
+    for (int j = 0; j < lat.get_Ly(); ++j){
+        real_part = 0;
+        imag_part = 0;
+        for (int i = 0; i < lat.get_Lx(); ++i){
+            real_part += lat.get_spin(i, j) * cos(Qa * i);
+            imag_part += lat.get_spin(i, j) * sin(Qa * i);
+        }
+        result += norm * norm * (real_part * real_part + imag_part * imag_part);
+    }
+    return result/(lat.get_Ly());
+}
+
+double GeneralLRW::calc_mqt0_4_abs(IsingLattice2D& lat, double Qa){
+    double real_part = 0, imag_part = 0, result = 0, norm = 1.0/lat.get_Lx();
+    for (int j = 0; j < lat.get_Ly(); ++j){
+        real_part = 0;
+        imag_part = 0;
+        for (int i = 0; i < lat.get_Lx(); ++i){
+            real_part += lat.get_spin(i, j) * cos(Qa * i);
+            imag_part += lat.get_spin(i, j) * sin(Qa * i);
+        }
+        result += norm * norm * norm * norm * (real_part * real_part + imag_part * imag_part) * (real_part * real_part + imag_part * imag_part);
+    }
+    return result/(lat.get_Ly());
+}
+
+double GeneralLRW::calc_mqt0_gpu(thrust::host_vector<double>& corr, double Qa, int Lx){
+    double mq_sq = 0.0;
+    double norm = 2.0 / Lx;
+    for (int i = 0; i < Lx; ++i){
+        mq_sq += norm * corr[i] * cos(Qa * i);
+    }
+    return sqrt(mq_sq);
+}
+
+double GeneralLRW::calc_locw1(IsingLattice2D& lat, double w1){
+    double real_part = 0, imag_part = 0, result = 0;
+    for (int i = 0; i < lat.get_Lx(); ++i){
+        real_part = 0;
+        imag_part = 0;
+        for (int j = 0; j < lat.get_Ly(); ++j){
+            real_part += lat.get_spin(i, j) * cos(w1 * j);
+            imag_part += lat.get_spin(i, j) * sin(w1 * j);
+        }
+        result += sqrt(real_part * real_part + imag_part * imag_part)/(lat.get_Ly()*lat.get_Lx());
+    }
+    return result;
 }
 
 double GeneralLRW::calc_sx(IsingLattice2D& lat) {
@@ -260,6 +371,35 @@ double GeneralLRW::calc_xmag(IsingLattice2D& lat) {
 			time_mag += lat.get_spin(i, j);
 		}
 		final_result += (time_mag > 0) ? time_mag / lat.get_Lx() : -time_mag / lat.get_Lx();
+	}
+	return final_result / lat.get_Ly();
+}
+
+double GeneralLRW::calc_xmag2(IsingLattice2D& lat) {
+	//spatial analogue of localization
+	double final_result = 0.0;
+	for (int j = 0; j < lat.get_Ly(); ++j) {
+		double time_mag = 0.0;
+		for (int i = 0; i < lat.get_Lx(); ++i) {
+			time_mag += lat.get_spin(i, j);
+		}
+        time_mag *= time_mag / lat.get_Lx() / lat.get_Lx();
+		final_result += time_mag;
+	}
+	return final_result / lat.get_Ly();
+}
+
+double GeneralLRW::calc_xmag4(IsingLattice2D& lat) {
+	//spatial analogue of localization
+	double final_result = 0.0;
+	for (int j = 0; j < lat.get_Ly(); ++j) {
+		double time_mag = 0.0;
+		for (int i = 0; i < lat.get_Lx(); ++i) {
+			time_mag += lat.get_spin(i, j);
+		}
+        time_mag /= lat.get_Lx();
+        time_mag *= time_mag * time_mag * time_mag;
+		final_result += time_mag;
 	}
 	return final_result / lat.get_Ly();
 }
@@ -356,7 +496,7 @@ double GeneralLRW::calc_action_slow(IsingLattice2D& lat) {
 			s1 = lat.get_spin(i, j);
 			for (int m = 0; m < Lx; ++m) {
 				for (int n = 0; n < Ly; ++n) {
-					S += s1 * lat.get_spin(m, n) * interactions[(m - i + Lx)%Lx][(n - j + Ly)%Ly];
+					S += s1 * lat.get_spin(m, n) * interactions[abs(m - i)][abs(n - j)];
 				}
 			}
 		}
@@ -372,7 +512,7 @@ double GeneralLRW::calc_point_action_slow(IsingLattice2D& lat, int x, int y){
 	int s1 = lat.get_spin(x,y);
 	for (int i = 0; i < Lx; ++i){
 		for (int j = 0; j < Ly; ++j){
-			S += s1 * lat.get_spin(i,j) * interactions[(i - x + Lx)%Lx][(j - y + Ly)%Ly];
+			S += s1 * lat.get_spin(i,j) * interactions[abs(i - x)][abs(j - y)];
 		}
 	}
 	return S;
@@ -385,7 +525,7 @@ double GeneralLRW::calc_point_action_fast(IsingLattice2D& lat, int x, int y){
 	int s1 = lat.get_spin(x,y);
 	for (int i = -Lx/5; i <= Lx/5; ++i){
 		for (int j = -Ly/20; j <= Ly/20; ++j){
-			S += s1 * lat.get_spin(i,j) * interactions[(i + Lx)%Lx][(j + Ly)%Ly];
+			S += s1 * lat.get_spin(i,j) * interactions[abs(i)][abs(j)];
 		}
 	}
 	return S;

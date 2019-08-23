@@ -1,6 +1,7 @@
 #Lattice Params
 2	#dimension
-ferro	#latticetype
+ferro	#starting lattice
+pbc     #boundary conditions
 16 128	#lengths
 2048 1.0	#spacings
 
@@ -26,5 +27,5 @@ write_states 	#algorithm
 1.0	#g
 1.0	#alpha
 1.0	#delta
-434.59909	#v
+1.0	#v
 1.0   #omega_c

@@ -1,0 +1,146 @@
+Not using MPI
+Using GPU, yes or no: no
+Error reading parallel tempering params! Number of param values in input file does not match number of processes
+Params for process 0:
+Dimension: 2
+Starting Lattice type: ferro
+Boundary Condition: pbc
+Dimension lengths: 16 128 
+Dimension spacings: 2048 0.16 
+Cutoff: hard
+J couplings: 0 0.920532 
+kT: 0.012207
+Beta: 20.48
+H: 0
+Algorithm: write_states
+Random Seed: 1245689
+Metropolis Steps: 0
+Total: 0
+Onesite Steps: 0
+Total: 0
+Wolff Steps: 10
+Total: 1000
+Kept Measures: 100
+Throwaway Measures: 0
+Parallel Tempering Steps: 0
+Spin Boson Params:
+g: 1
+A0: 0.3
+Delta: 1
+V: 1
+omega_c: 1
+Qa: 2048
+Qa/2pi: 325.949
+QL: 50.2655
+
+
+
+Can only use wolff steps and no parallel tempering
+measurement step 1 out of 100 completed
+measurement step 2 out of 100 completed
+measurement step 3 out of 100 completed
+measurement step 4 out of 100 completed
+measurement step 5 out of 100 completed
+measurement step 6 out of 100 completed
+measurement step 7 out of 100 completed
+measurement step 8 out of 100 completed
+measurement step 9 out of 100 completed
+measurement step 10 out of 100 completed
+measurement step 11 out of 100 completed
+measurement step 12 out of 100 completed
+measurement step 13 out of 100 completed
+measurement step 14 out of 100 completed
+measurement step 15 out of 100 completed
+measurement step 16 out of 100 completed
+measurement step 17 out of 100 completed
+measurement step 18 out of 100 completed
+measurement step 19 out of 100 completed
+measurement step 20 out of 100 completed
+measurement step 21 out of 100 completed
+measurement step 22 out of 100 completed
+measurement step 23 out of 100 completed
+measurement step 24 out of 100 completed
+measurement step 25 out of 100 completed
+measurement step 26 out of 100 completed
+measurement step 27 out of 100 completed
+measurement step 28 out of 100 completed
+measurement step 29 out of 100 completed
+measurement step 30 out of 100 completed
+measurement step 31 out of 100 completed
+measurement step 32 out of 100 completed
+measurement step 33 out of 100 completed
+measurement step 34 out of 100 completed
+measurement step 35 out of 100 completed
+measurement step 36 out of 100 completed
+measurement step 37 out of 100 completed
+measurement step 38 out of 100 completed
+measurement step 39 out of 100 completed
+measurement step 40 out of 100 completed
+measurement step 41 out of 100 completed
+measurement step 42 out of 100 completed
+measurement step 43 out of 100 completed
+measurement step 44 out of 100 completed
+measurement step 45 out of 100 completed
+measurement step 46 out of 100 completed
+measurement step 47 out of 100 completed
+measurement step 48 out of 100 completed
+measurement step 49 out of 100 completed
+measurement step 50 out of 100 completed
+measurement step 51 out of 100 completed
+measurement step 52 out of 100 completed
+measurement step 53 out of 100 completed
+measurement step 54 out of 100 completed
+measurement step 55 out of 100 completed
+measurement step 56 out of 100 completed
+measurement step 57 out of 100 completed
+measurement step 58 out of 100 completed
+measurement step 59 out of 100 completed
+measurement step 60 out of 100 completed
+measurement step 61 out of 100 completed
+measurement step 62 out of 100 completed
+measurement step 63 out of 100 completed
+measurement step 64 out of 100 completed
+measurement step 65 out of 100 completed
+measurement step 66 out of 100 completed
+measurement step 67 out of 100 completed
+measurement step 68 out of 100 completed
+measurement step 69 out of 100 completed
+measurement step 70 out of 100 completed
+measurement step 71 out of 100 completed
+measurement step 72 out of 100 completed
+measurement step 73 out of 100 completed
+measurement step 74 out of 100 completed
+measurement step 75 out of 100 completed
+measurement step 76 out of 100 completed
+measurement step 77 out of 100 completed
+measurement step 78 out of 100 completed
+measurement step 79 out of 100 completed
+measurement step 80 out of 100 completed
+measurement step 81 out of 100 completed
+measurement step 82 out of 100 completed
+measurement step 83 out of 100 completed
+measurement step 84 out of 100 completed
+measurement step 85 out of 100 completed
+measurement step 86 out of 100 completed
+measurement step 87 out of 100 completed
+measurement step 88 out of 100 completed
+measurement step 89 out of 100 completed
+measurement step 90 out of 100 completed
+measurement step 91 out of 100 completed
+measurement step 92 out of 100 completed
+measurement step 93 out of 100 completed
+measurement step 94 out of 100 completed
+measurement step 95 out of 100 completed
+measurement step 96 out of 100 completed
+measurement step 97 out of 100 completed
+measurement step 98 out of 100 completed
+measurement step 99 out of 100 completed
+measurement step 100 out of 100 completed
+Results for process #0:
+full simulation: 6.01459s
+step calculation: 0.00646937s
+measurements: 0.0118146s
+Setup: 5.94564s
+total steps = 1000, acceptance ratio = 0, number of measurements kept = 100, parallel tempering steps (or dump steps for no gpu) = 0, parallel tempering move probability: -nan, cluster size: 0.00591797
+
+

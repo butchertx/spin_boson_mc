@@ -125,6 +125,16 @@ public:
 	std::vector<std::vector<double>> get_interactions(){
 		return interactions;
 	}
+
+    double calc_mqt0_abs(IsingLattice2D&, double);
+
+    double calc_mqt0_2_abs(IsingLattice2D&, double);
+
+    double calc_mqt0_4_abs(IsingLattice2D&, double);
+
+    double calc_mqt0_gpu(thrust::host_vector<double>&, double, int);
+
+    double calc_locw1(IsingLattice2D&, double);
     
 	double calc_sx(IsingLattice2D&);
 
@@ -133,6 +143,10 @@ public:
 	double calc_sz_stagger(IsingLattice2D&);
 
 	double calc_xmag(IsingLattice2D&);
+
+	double calc_xmag2(IsingLattice2D&);
+
+	double calc_xmag4(IsingLattice2D&);
 
     double calc_mag(IsingLattice2D&);
 

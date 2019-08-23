@@ -102,6 +102,14 @@ void read_input_ising(std::ifstream* file_p, class_mc_params* params) {
 		iss.str("");
 
 		std::getline(*file_p, line);
+		iss << line;//#type
+		iss >> params->boundary;
+        if(params->boundary.compare("pinfm") == 0 || params->boundary.compare("pinaf") == 0){
+            std::cout << "Pinned Boundary Conditions not yet supported!\n";
+        }
+		iss.str("");
+
+		std::getline(*file_p, line);
 		iss << line;//#lengths
 		for (int i = 0; i < params->dim; ++i) {
 			iss >> dummyi;
@@ -345,6 +353,15 @@ void apply_spin_boson_params(class_mc_params* params) {
 	params->Js[0] = tc*params->Js[0];
 	params->Js[1] = -0.5 * log(tanh(tc * params->sbparams.delta));
 	params->h = tc*params->h;
+    if(params->cutoff_type.compare("inf")){
+        params->Qa = M_PI;
+    }
+    else if(params->cutoff_type.compare("exp")){
+        params->Qa = 0;
+    }
+    else{
+        params->Qa = params->sbparams.omega_c * params->spacings[0] / params->sbparams.v;
+    }
 }
 
 std::string vec2str(std::vector<double> vec) {
